@@ -1,0 +1,54 @@
+session.go
+  7a4f7aa709516e8f 144
+internal/core/types.go
+  7a4f7aa709516e8f 1,5-9,11-352,355-395,435-625
+skills.go
+  7a4f7aa709516e8f 3,7,10-11,14-15
+types.go
+  7a4f7aa709516e8f 3,11,15,19,23
+internal/schema/schema.go
+  7a4f7aa709516e8f 1-283
+providers.go
+  7a4f7aa709516e8f 1-29
+aliases.go
+  7a4f7aa709516e8f 1-139
+mcp_stdio.go
+  7a4f7aa709516e8f 6-7,10-12,15-19,23
+internal/providers/openai/openai.go
+  7a4f7aa709516e8f 1,13-26,274
+internal/skills/skills.go
+  7a4f7aa709516e8f 1-161
+agent.go
+  7a4f7aa709516e8f 650,669,721,730,865
+subagent.go
+  7a4f7aa709516e8f 238
+tool_schema.go
+  7a4f7aa709516e8f 3,13-14,17-18
+observer.go
+  7a4f7aa709516e8f 3
+internal/providers/anthropic/anthropic.go
+  7a4f7aa709516e8f 1,13-14,23-42,279
+internal/mcp/stdio/stdio.go
+  7a4f7aa709516e8f 1-634
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "371195442ac5bdbc0a57c1e7bfe6c16878e66ca6",
+  "prompts": {
+    "7a4f7aa709516e8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3dcf-a288-75a1-b515-1bed3b367a05",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 2620,
+      "total_deletions": 1969,
+      "accepted_lines": 2620,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/c59a410c4d59b96658706e6cea289a3a262d37f09fe4fd94d26b73a20a0db5d8"
+    }
+  }
+}
