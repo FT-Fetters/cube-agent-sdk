@@ -235,7 +235,7 @@ func selectedSkills(a *Agent, options SubagentOptions) []Skill {
 	var skills []Skill
 	add := func(name string) {
 		if skill, ok := a.skills[name]; ok {
-			skills = append(skills, skill.clone())
+			skills = append(skills, cloneSkill(skill))
 		}
 	}
 	if options.InheritSkills {

@@ -647,7 +647,7 @@ func (a *Agent) registerSkill(skill Skill) error {
 	if _, exists := a.skills[skill.Name]; !exists {
 		a.skillOrder = append(a.skillOrder, skill.Name)
 	}
-	a.skills[skill.Name] = skill.clone()
+	a.skills[skill.Name] = cloneSkill(skill)
 	return nil
 }
 
@@ -666,7 +666,7 @@ func (a *Agent) activeSkillsLocked() []Skill {
 	}
 	skills := make([]Skill, 0, len(names))
 	for _, name := range names {
-		skills = append(skills, a.skills[name].clone())
+		skills = append(skills, cloneSkill(a.skills[name]))
 	}
 	return skills
 }
@@ -718,7 +718,7 @@ func (a *Agent) resolveActiveSkills(input string, explicit []string) ([]Skill, e
 		if _, exists := seen[name]; exists {
 			continue
 		}
-		if skill.matches(input) {
+		if skillMatches(skill, input) {
 			if err := add(name); err != nil {
 				return nil, err
 			}
@@ -727,7 +727,7 @@ func (a *Agent) resolveActiveSkills(input string, explicit []string) ([]Skill, e
 
 	skills := make([]Skill, 0, len(names))
 	for _, name := range names {
-		skill := a.skills[name].clone()
+		skill := cloneSkill(a.skills[name])
 		skills = append(skills, skill)
 	}
 	return skills, nil
@@ -862,7 +862,7 @@ func cloneSkills(skills []Skill) []Skill {
 	}
 	cloned := make([]Skill, len(skills))
 	for i, skill := range skills {
-		cloned[i] = skill.clone()
+		cloned[i] = cloneSkill(skill)
 	}
 	return cloned
 }

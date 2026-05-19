@@ -1,4 +1,4 @@
-package agent
+package openai
 
 import (
 	"bytes"
@@ -10,6 +10,20 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/cubence/cube-agent-sdk/internal/core"
+)
+
+type ModelRequest = core.ModelRequest
+type ModelResponse = core.ModelResponse
+type Message = core.Message
+type ToolCall = core.ToolCall
+type ToolDescriptor = core.ToolDescriptor
+type Role = core.Role
+
+const (
+	RoleSystem    = core.RoleSystem
+	RoleAssistant = core.RoleAssistant
 )
 
 const openAICompatibleChatCompletionsPath = "/chat/completions"
@@ -257,7 +271,7 @@ func (r openAIChatCompletionResponse) modelResponse() (ModelResponse, error) {
 	assistantMessage := Message{
 		Role:      role,
 		Content:   content,
-		ToolCalls: cloneToolCalls(toolCalls),
+		ToolCalls: core.CloneToolCalls(toolCalls),
 	}
 	return ModelResponse{
 		Message:   assistantMessage,

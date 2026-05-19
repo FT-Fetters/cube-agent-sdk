@@ -141,7 +141,7 @@ func (a *Agent) Fork(id string) (*Agent, error) {
 func cloneSkillMap(skills map[string]Skill) map[string]Skill {
 	cloned := make(map[string]Skill, len(skills))
 	for name, skill := range skills {
-		cloned[name] = skill.clone()
+		cloned[name] = cloneSkill(skill)
 	}
 	return cloned
 }

@@ -1,4 +1,4 @@
-package agent
+package anthropic
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/cubence/cube-agent-sdk/internal/core"
 )
 
 const (
@@ -17,6 +19,26 @@ const (
 	defaultAnthropicVersion   = "2023-06-01"
 	defaultAnthropicMaxTokens = 4096
 )
+
+const (
+	DefaultVersion   = defaultAnthropicVersion
+	DefaultMaxTokens = defaultAnthropicMaxTokens
+)
+
+type ModelRequest = core.ModelRequest
+type ModelResponse = core.ModelResponse
+type Message = core.Message
+type ToolCall = core.ToolCall
+type ToolDescriptor = core.ToolDescriptor
+
+const (
+	RoleUser      = core.RoleUser
+	RoleAssistant = core.RoleAssistant
+	RoleTool      = core.RoleTool
+	RoleSystem    = core.RoleSystem
+)
+
+var cloneAnyMap = core.CloneAnyMap
 
 // AnthropicMessagesConfig configures an Anthropic Messages API endpoint.
 type AnthropicMessagesConfig struct {
@@ -254,7 +276,7 @@ func (r anthropicMessagesResponse) modelResponse() (ModelResponse, error) {
 	message := Message{
 		Role:      RoleAssistant,
 		Content:   strings.Join(textParts, ""),
-		ToolCalls: cloneToolCalls(toolCalls),
+		ToolCalls: core.CloneToolCalls(toolCalls),
 	}
 	return ModelResponse{Message: message, ToolCalls: toolCalls}, nil
 }
