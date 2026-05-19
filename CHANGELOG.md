@@ -1,0 +1,30 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+This project follows a simple source-level changelog until the first tagged
+release. Dates use ISO 8601 format.
+
+## Unreleased
+
+### Added
+
+- Initial SDK runtime for managed agent conversations, tools, approvals, hooks,
+  observers, skills, compaction, session state, MCP metadata, and subagents.
+- OpenAI-compatible chat completions adapter with local HTTP test coverage.
+- Unified model factory for selecting provider API type from configuration.
+- Anthropic Messages adapter for `/v1/messages` endpoints.
+- Structured tool schemas and validation before tool execution.
+- Streaming model interface and agent streaming API.
+- Minimal MCP stdio client and tool bridge.
+- Session snapshot, restore, reset, and fork APIs.
+- Structured errors and enriched lifecycle event metadata.
+- Production-oriented observer interface with sanitized event details.
+- Safer approval policy helpers for deny-by-default, allowlists, and tool risk
+  levels.
+- Runnable local examples and README coverage for core SDK workflows.
+- CI workflow for tests, race tests, and vet.
+
+### Documentation
+
+- Added MIT license, contribution guide, changelog, and release quality gates.

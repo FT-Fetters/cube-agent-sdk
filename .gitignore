@@ -1,0 +1,19 @@
+# Build outputs and local binaries.
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go test and coverage artifacts.
+*.test
+coverage.out
+coverage/
+
+# Local environment and editor state.
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/

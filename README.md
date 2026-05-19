@@ -1,0 +1,582 @@
+# Cube Agent SDK
+
+A small Go SDK for building agents with managed conversation state, tools,
+approval checks, streaming, MCP integration, session snapshots, hooks, observers,
+skills, compaction, and subagents.
+
+The SDK keeps provider credentials, external process deployment, approval UI,
+durable storage, and telemetry exporters outside the core runtime. Applications
+plug those pieces in through Go interfaces and options.
+
+## Install
+
+```bash
+go get github.com/cubence/cube-agent-sdk
+```
+
+The module has no third-party Go dependencies.
+
+## Quick Start
+
+Run the tests and compile every example:
+
+```bash
+go test ./...
+```
+
+Run one local example without a real model provider:
+
+```bash
+go run ./examples/tool_schema
+```
+
+Minimal agent setup:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	agent "github.com/cubence/cube-agent-sdk"
+)
+
+type model struct{}
+
+func (model) Generate(context.Context, agent.ModelRequest) (agent.ModelResponse, error) {
+	return agent.ModelResponse{
+		Message: agent.Message{Role: agent.RoleAssistant, Content: "ok"},
+	}, nil
+}
+
+func main() {
+	bot, err := agent.New(agent.Config{
+		SystemPrompt: "You are a focused coding agent.",
+	}, model{})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	reply, err := bot.Run(context.Background(), "Say hello.")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(reply.Content)
+}
+```
+
+The `Agent` owns prompt assembly, message history, active skills, tool
+descriptors, approval checks, lifecycle hooks, observer notifications,
+compaction, MCP server metadata, and subagent registries.
+
+## Examples
+
+Local examples are under `examples/` and avoid real credentials or external
+services:
+
+- `go run ./examples/openai_compatible`
+- `go run ./examples/model_factory`
+- `go run ./examples/tool_schema`
+- `go run ./examples/streaming`
+- `go run ./examples/mcp_stdio`
+- `go run ./examples/session_state`
+- `go run ./examples/approval_observer`
+
+`examples/live_api` is the only example intended for a real provider endpoint.
+It reads credentials from environment variables and is not required by CI:
+
+```bash
+MODEL_API_TYPE=anthropic-messages \
+MODEL_BASE_URL=https://api.anthropic.com \
+MODEL_API_KEY="<your-api-key>" \
+MODEL_NAME=claude-sonnet-4-6 \
+go run ./examples/live_api
+```
+
+Use `MODEL_API_TYPE=openai-compatible` with an OpenAI-compatible
+`MODEL_BASE_URL` to run the same example against a chat completions endpoint.
+
+## SDK Responsibilities
+
+The SDK provides:
+
+- Runtime abstractions: `Agent`, `Model`, `StreamModel`, `Tool`,
+  `ApprovalPolicy`, `Hook`, `Observer`, `Compactor`, and session APIs.
+- OpenAI-compatible chat completions adapter.
+- Tool descriptor and JSON Schema subset for model-facing function calling.
+- Tool argument validation before local tool execution.
+- MCP stdio client and MCP-to-`Tool` bridge.
+- Session snapshot, restore, reset, and fork APIs.
+- Approval policy helpers with tool-name and risk allowlists.
+- Sanitized observations and structured lifecycle events.
+- Structured `AgentError` values and sentinel errors.
+
+Applications provide:
+
+- Real model provider credentials, model IDs, and base URLs.
+- External MCP server binaries, runtime configuration, and deployment.
+- Human approval UI or business policy integration.
+- Durable storage, encryption, retention policy, and migration strategy for
+  session snapshots.
+- Telemetry exporters, log sinks, metrics labels, and tracing correlation.
+- Secret management, network controls, rate limiting, and production rollout.
+
+## Built-In Model API Types
+
+Use `NewModel` when you want application code to choose a provider wire
+protocol through configuration. The SDK currently includes:
+
+- `ModelAPIOpenAICompatible` for `/chat/completions` endpoints.
+- `ModelAPIAnthropicMessages` for Anthropic Messages-style `/v1/messages`
+  endpoints.
+
+```go
+model, err := agent.NewModel(agent.ModelConfig{
+	APIType: agent.ModelAPIAnthropicMessages,
+	BaseURL: os.Getenv("MODEL_BASE_URL"),
+	APIKey:  os.Getenv("MODEL_API_KEY"),
+	Model:   os.Getenv("MODEL_NAME"),
+})
+if err != nil {
+	return err
+}
+```
+
+Switch protocols by changing `APIType` and the provider settings:
+
+```go
+model, err := agent.NewModel(agent.ModelConfig{
+	APIType: agent.ModelAPIOpenAICompatible,
+	BaseURL: "https://api.openai.com/v1",
+	APIKey:  os.Getenv("OPENAI_API_KEY"),
+	Model:   "gpt-4.1",
+})
+```
+
+`NewModel` is a convenience factory. Provider-specific constructors remain
+available when an application wants protocol-specific fields or clearer wiring.
+
+## OpenAI-Compatible Models
+
+Use `NewOpenAICompatibleModel` for providers that expose the standard
+`/chat/completions` request and response shape. `BaseURL` can be a provider root
+or a full URL ending in `/chat/completions`.
+
+```go
+model, err := agent.NewOpenAICompatibleModel(agent.OpenAICompatibleConfig{
+	BaseURL: os.Getenv("OPENAI_COMPATIBLE_BASE_URL"),
+	APIKey:  os.Getenv("OPENAI_API_KEY"),
+	Model:   os.Getenv("OPENAI_COMPATIBLE_MODEL"),
+})
+if err != nil {
+	return err
+}
+
+bot, err := agent.New(agent.Config{
+	SystemPrompt: "You are a concise assistant.",
+}, model)
+```
+
+The adapter maps SDK messages, tool descriptors, and tool calls to the
+OpenAI-compatible wire format. It does not manage provider accounts, API keys,
+retries, rate limits, or network policy. Provide a custom `HTTPClient` when your
+application needs timeouts, proxies, tracing, or transport controls.
+
+## Anthropic Messages
+
+Use `NewAnthropicMessagesModel` or `NewModel` with
+`ModelAPIAnthropicMessages` for providers that expose the Anthropic Messages
+request and response shape. `BaseURL` can be a provider root, a `/v1` URL, or a
+full `/v1/messages` URL.
+
+```go
+model, err := agent.NewModel(agent.ModelConfig{
+	APIType: agent.ModelAPIAnthropicMessages,
+	BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+	APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+	Model:   os.Getenv("ANTHROPIC_MODEL"),
+})
+if err != nil {
+	return err
+}
+```
+
+The adapter maps the SDK system prompt to the top-level `system` field, maps
+tools to Anthropic `tools` with `input_schema`, maps SDK tool calls to
+`tool_use` content blocks, and maps SDK tool results to `tool_result` user
+content blocks. The default Anthropic API version is `2023-06-01`; set
+`AnthropicVersion` in `ModelConfig` or `AnthropicMessagesConfig` if your
+provider requires another version.
+
+## Tool Schema
+
+Tools are local Go functions that models can request. Attach a schema to make
+the model-facing descriptor explicit and to let the SDK validate arguments
+before the function runs.
+
+```go
+lookup := agent.ToolFunc{
+	ToolName:        "lookup_account",
+	ToolDescription: "Read account status",
+	ToolRisk:        agent.ToolRiskRead,
+	Parameters: &agent.ToolParametersSchema{
+		Type:     agent.SchemaTypeObject,
+		Required: []string{"account_id"},
+		Properties: map[string]agent.ToolParametersSchema{
+			"account_id": {
+				Type:        agent.SchemaTypeString,
+				Description: "Application account identifier",
+			},
+		},
+	},
+	Fn: func(ctx context.Context, call agent.ToolCall) (agent.ToolResult, error) {
+		accountID, _ := call.Arguments["account_id"].(string)
+		return agent.ToolResult{
+			CallID:  call.ID,
+			Name:    call.Name,
+			Content: "account " + accountID + " is active",
+		}, nil
+	},
+}
+```
+
+Schema validation rejects missing or wrong-typed arguments with
+`ErrToolValidation`. The SDK validates the call and executes the function, but
+the application owns the business logic, data access, side effects, and result
+content.
+
+## Streaming
+
+Models that support text deltas implement `StreamModel` in addition to `Model`.
+`RunStream` returns a channel of `StreamEvent` values.
+
+```go
+events, err := bot.RunStream(ctx, "Write a short summary.")
+if err != nil {
+	if errors.Is(err, agent.ErrStreamingUnsupported) {
+		// Fall back to Run or choose a streaming-capable adapter.
+	}
+	return err
+}
+
+for event := range events {
+	switch event.Type {
+	case agent.StreamEventDelta:
+		fmt.Print(event.Delta)
+	case agent.StreamEventDone:
+		fmt.Println(event.Message.Content)
+	case agent.StreamEventError:
+		return event.Error
+	}
+}
+```
+
+The SDK commits the final assistant message only after a done event. Interrupted
+delta streams do not persist partial assistant text. Streamed tool calls are
+reported with `ErrStreamingToolCallsUnsupported`.
+
+## MCP Stdio
+
+There are two MCP integration paths.
+
+First, attach MCP server configuration to model requests when your model adapter
+or provider handles MCP:
+
+```go
+bot, err := agent.New(cfg, model, agent.WithMCPServers(agent.MCPServerConfig{
+	Name:      "filesystem",
+	Command:   "mcp-filesystem",
+	Args:      []string{"--root", "."},
+	Env:       map[string]string{"MODE": "readonly"},
+	Transport: agent.MCPTransportStdio,
+}))
+```
+
+Second, run an MCP stdio server as SDK tools:
+
+```go
+client, err := agent.StartMCPStdioClient(ctx, agent.MCPServerConfig{
+	Name:      "filesystem",
+	Command:   os.Getenv("MCP_FILESYSTEM_COMMAND"),
+	Args:      []string{"--root", os.Getenv("MCP_FILESYSTEM_ROOT")},
+	Transport: agent.MCPTransportStdio,
+})
+if err != nil {
+	return err
+}
+defer client.Close()
+
+tools, err := client.Tools(ctx)
+if err != nil {
+	return err
+}
+
+bot, err := agent.New(cfg, model,
+	agent.WithTools(tools...),
+	agent.WithApprovalPolicy(agent.AllowToolsApproval("read_file")),
+)
+```
+
+The SDK launches the stdio process, performs MCP initialize, lists tools, maps
+MCP schemas to SDK tool schemas, calls `tools/call`, and returns MCP text content
+as `ToolResult`. Applications must supply the real server binary, environment,
+filesystem or network permissions, process supervision policy, and approval UX.
+
+## Session State
+
+Use snapshots when you need to persist or branch an agent session.
+
+```go
+snapshot := bot.Snapshot()
+payload, err := json.Marshal(snapshot)
+if err != nil {
+	return err
+}
+
+var restored agent.SessionSnapshot
+if err := json.Unmarshal(payload, &restored); err != nil {
+	return err
+}
+
+next, err := agent.New(cfg, model)
+if err != nil {
+	return err
+}
+if err := next.Restore(restored); err != nil {
+	return err
+}
+
+branch, err := next.Fork("what-if")
+```
+
+`Snapshot` copies the managed conversation context. `Restore` replaces only that
+context, preserving the target agent's configured model and capabilities.
+`Fork` creates an independent agent with copied context and copied capability
+registries. The SDK serializes the snapshot shape; applications own durable
+storage, access control, retention, and schema migration.
+
+## Approval Policies
+
+Every tool call passes through an `ApprovalPolicy`. The default is
+`AllowAllApproval` for compatibility, but production agents should install an
+explicit policy.
+
+```go
+policy := agent.RequireAllApprovals(
+	agent.AllowToolsApproval("lookup_account"),
+	agent.AllowRisksApproval(agent.ToolRiskRead),
+)
+
+bot, err := agent.New(cfg, model,
+	agent.WithTools(lookup),
+	agent.WithApprovalPolicy(policy),
+)
+```
+
+Useful helpers:
+
+- `DenyAllApproval` rejects every tool call.
+- `AllowToolsApproval` approves only named tools.
+- `DenyToolsApproval` blocks selected tools and approves the rest.
+- `AllowRisksApproval` approves only selected risk classes.
+- `RequireAllApprovals` composes policies with AND semantics.
+- `ApprovalFunc` adapts application logic, such as a human approval prompt.
+
+Denied tools return an error compatible with `errors.Is(err,
+agent.ErrApprovalDenied)`. Approval events and observations include approval
+result, reason, tool name, and risk. They do not expose tool arguments.
+
+## Observability
+
+Use hooks when the application may reject an operation, and observers when
+telemetry must never alter execution.
+
+```go
+hook := func(ctx context.Context, event agent.Event) error {
+	if event.Type == agent.EventBeforeTool && event.ToolRisk == agent.ToolRiskDestructive {
+		return fmt.Errorf("destructive tools require a separate workflow")
+	}
+	return nil
+}
+
+observer := agent.ObserverFunc(func(ctx context.Context, observation agent.Observation) {
+	log.Printf("type=%s request=%s round=%d failed=%v",
+		observation.Type,
+		observation.RequestID,
+		observation.Round,
+		observation.Failed,
+	)
+})
+
+bot, err := agent.New(cfg, model,
+	agent.WithHook(hook),
+	agent.WithObserver(observer),
+)
+```
+
+Events and observations carry audit fields such as event type, agent ID,
+subagent ID, request ID, round, duration, estimated tokens, tool name, tool risk,
+approval result, skill name, and error category. Observations intentionally omit
+message content, tool arguments, tool results, raw errors, API keys, and MCP
+environment values.
+
+## Error Handling
+
+The SDK exposes sentinel errors for common control flow:
+
+- `ErrApprovalDenied`
+- `ErrToolNotFound`
+- `ErrToolValidation`
+- `ErrMaxToolRoundsExceeded`
+- `ErrStreamingUnsupported`
+- `ErrStreamingToolCallsUnsupported`
+- `ErrMCPProcessExited`
+- `ErrMCPRPC`
+- `ErrMCPToolNotFound`
+- `ErrSubagentNotFound`
+
+Use `errors.Is` for sentinel checks and `errors.As` for structured context:
+
+```go
+reply, err := bot.Run(ctx, input)
+if err != nil {
+	if errors.Is(err, agent.ErrApprovalDenied) {
+		return err
+	}
+	var agentErr *agent.AgentError
+	if errors.As(err, &agentErr) {
+		log.Printf("category=%s operation=%s request=%s",
+			agentErr.Category,
+			agentErr.Operation,
+			agentErr.RequestID,
+		)
+	}
+	return err
+}
+_ = reply
+```
+
+`AgentError` carries category, operation, agent ID, request ID, tool name,
+subagent ID, round, and the wrapped cause.
+
+## Skills
+
+Skills are reusable instruction bundles. Build them directly:
+
+```go
+reviewSkill := agent.Skill{
+	Name:           "review",
+	Description:    "Review code changes",
+	Instructions:   "Inspect changes for bugs, regressions, and missing tests.",
+	TriggerPhrases: []string{"review", "code review"},
+}
+
+bot, err := agent.New(cfg, model, agent.WithSkills(reviewSkill))
+```
+
+Or load standard `SKILL.md` directories:
+
+```text
+skills/
+  review/
+    SKILL.md
+```
+
+Activation options:
+
+- `ActivateSkill` for persistent activation.
+- `WithRunSkills` for one run.
+- Inline markers such as `+review` or `+skill:review`.
+- `TriggerPhrases` or a custom matcher for implicit activation.
+
+## Compaction
+
+Set `CompactConfig` to compact long sessions before model calls.
+
+```go
+cfg := agent.Config{
+	SystemPrompt: "You are a focused coding agent.",
+	Compact: agent.CompactConfig{
+		MaxTokens: 200000,
+		Threshold: 0.8,
+		KeepLast:  8,
+	},
+}
+```
+
+By default, the SDK uses an approximate token counter and a deterministic local
+summary placeholder. For production summaries, attach a model-backed compactor:
+
+```go
+bot, err := agent.New(cfg, chatModel,
+	agent.WithCompactor(agent.ModelCompactor{
+		Model:        summaryModel,
+		SystemPrompt: "Summarize context for the next agent turn.",
+		KeepLast:     8,
+	}),
+)
+```
+
+## Subagents
+
+Parent agents can spawn subagents and choose which capabilities are inherited.
+
+```go
+worker, err := master.SpawnSubagent(ctx, agent.SubagentOptions{
+	ID:                "worker-1",
+	SystemPrompt:      "You are a focused implementation worker.",
+	Model:             workerModel,
+	InheritToolNames:  []string{"read_file", "run_tests"},
+	InheritSkillNames: []string{"review"},
+	InheritMCP:        true,
+})
+if err != nil {
+	return err
+}
+
+reply, err := master.SendMessageToSubagent(ctx, worker.ID(), "implement the next task")
+```
+
+Inheritance supports all or selected tools, MCP servers, skills, hooks, and
+instruction files.
+
+## Production Integration
+
+Recommended production path:
+
+1. Create a model adapter with explicit timeouts, retries, request logging, and
+   provider-specific error mapping.
+2. Load credentials, base URLs, MCP command paths, and secrets from your
+   deployment environment.
+3. Register only the tools the agent needs, with schemas and risk labels.
+4. Install a deny-by-default approval policy and connect `ApprovalFunc` to your
+   human or business approval workflow.
+5. Attach an `Observer` that exports sanitized metadata to your logging, metrics,
+   or tracing system.
+6. Persist `SessionSnapshot` payloads in application-owned storage with access
+   controls and retention policy.
+7. Run external MCP servers under application process supervision and least
+   privilege.
+8. Treat hooks as enforcement points and observers as best-effort telemetry.
+9. Test model adapters with fake HTTP servers and MCP integrations with fake
+   stdio servers before using real providers.
+
+Local verification:
+
+```bash
+go test ./...
+go test -race ./...
+go vet ./...
+go test -count=1 ./...
+```
+
+## Contributing
+
+See `CONTRIBUTING.md` for local development, testing, and documentation
+guidelines. The release quality gate is the same set of commands listed above.
+
+## License
+
+Cube Agent SDK is licensed under the MIT License. See `LICENSE` for details.

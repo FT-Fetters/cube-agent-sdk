@@ -1,0 +1,353 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+)
+
+var (
+	ErrApprovalDenied        = errors.New("agent: approval denied")
+	ErrMaxToolRoundsExceeded = errors.New("agent: max tool rounds exceeded")
+	ErrToolNotFound          = errors.New("agent: tool not found")
+	ErrToolValidation        = errors.New("agent: tool validation failed")
+)
+
+// ToolDescriptor is the model-facing description of an available tool.
+type ToolDescriptor struct {
+	Name        string
+	Description string
+	Parameters  *ToolParametersSchema
+	Risk        ToolRisk
+}
+
+// ToolRisk labels the expected side-effect profile of a tool.
+type ToolRisk string
+
+const (
+	ToolRiskUnspecified ToolRisk = ""
+	ToolRiskRead        ToolRisk = "read"
+	ToolRiskWrite       ToolRisk = "write"
+	ToolRiskDestructive ToolRisk = "destructive"
+)
+
+// ToolCall is a model request to execute a tool.
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments map[string]any
+}
+
+// ToolResult is the output of a tool call.
+type ToolResult struct {
+	CallID   string
+	Name     string
+	Content  string
+	Metadata map[string]any
+}
+
+// Tool is implemented by callable agent tools.
+type Tool interface {
+	Name() string
+	Description() string
+	Call(context.Context, ToolCall) (ToolResult, error)
+}
+
+// ToolParametersSchemaProvider is an optional extension for tools with JSON Schema parameters.
+type ToolParametersSchemaProvider interface {
+	ParametersSchema() *ToolParametersSchema
+}
+
+// ToolRiskProvider is an optional extension for tools that declare side-effect risk.
+type ToolRiskProvider interface {
+	Risk() ToolRisk
+}
+
+// ToolFunc adapts a function into a Tool.
+type ToolFunc struct {
+	ToolName        string
+	ToolDescription string
+	Parameters      *ToolParametersSchema
+	ToolRisk        ToolRisk
+	Fn              func(context.Context, ToolCall) (ToolResult, error)
+}
+
+func (t ToolFunc) Name() string {
+	return t.ToolName
+}
+
+func (t ToolFunc) Description() string {
+	return t.ToolDescription
+}
+
+func (t ToolFunc) ParametersSchema() *ToolParametersSchema {
+	return cloneToolParametersSchema(t.Parameters)
+}
+
+func (t ToolFunc) Risk() ToolRisk {
+	return t.ToolRisk
+}
+
+func (t ToolFunc) Call(ctx context.Context, call ToolCall) (ToolResult, error) {
+	if t.Fn == nil {
+		return ToolResult{}, errors.New("agent: tool function is nil")
+	}
+	return t.Fn(ctx, call)
+}
+
+// ApprovalRequest describes a tool call awaiting permission.
+type ApprovalRequest struct {
+	AgentID  string
+	ToolName string
+	Risk     ToolRisk
+	ToolCall ToolCall
+}
+
+// ApprovalDecision is the result of a permission check.
+type ApprovalDecision struct {
+	Approved bool
+	Reason   string
+}
+
+// ApprovalPolicy decides whether a tool call may execute.
+type ApprovalPolicy interface {
+	ApproveTool(context.Context, ApprovalRequest) (ApprovalDecision, error)
+}
+
+// ApprovalFunc adapts a function into an ApprovalPolicy.
+type ApprovalFunc func(context.Context, ApprovalRequest) (ApprovalDecision, error)
+
+func (f ApprovalFunc) ApproveTool(ctx context.Context, request ApprovalRequest) (ApprovalDecision, error) {
+	return f(ctx, request)
+}
+
+// AllowAllApproval approves every tool call.
+type AllowAllApproval struct{}
+
+func (AllowAllApproval) ApproveTool(context.Context, ApprovalRequest) (ApprovalDecision, error) {
+	return ApprovalDecision{Approved: true, Reason: "allowed"}, nil
+}
+
+func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (ToolResult, error) {
+	requestID := a.nextRequestID()
+	started := time.Now()
+	estimatedTokens := a.estimatedToolCallTokens(call, ToolResult{})
+
+	a.mu.Lock()
+	tool := a.tools[call.Name]
+	approval := a.approval
+	agentID := a.id
+	a.mu.Unlock()
+	if tool == nil {
+		cause := fmt.Errorf("%w: %s", ErrToolNotFound, call.Name)
+		wrapped := agentError(ErrorCategoryTool, "tool.lookup", cause)
+		wrapped.AgentID = agentID
+		wrapped.ToolName = call.Name
+		wrapped.RequestID = requestID
+		wrapped.Round = round
+		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+	}
+	risk := toolRisk(tool)
+
+	if err := validateToolCallArguments(call.Name, call.Arguments, toolParametersSchema(tool)); err != nil {
+		wrapped := agentError(ErrorCategorySchema, "tool.validate", err)
+		wrapped.AgentID = agentID
+		wrapped.ToolName = call.Name
+		wrapped.RequestID = requestID
+		wrapped.Round = round
+		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+	}
+
+	if err := a.emit(ctx, Event{
+		Type:            EventBeforeApproval,
+		ToolName:        call.Name,
+		ToolRisk:        risk,
+		RequestID:       requestID,
+		Round:           round,
+		EstimatedTokens: estimatedTokens,
+		ToolCall:        approvalEventToolCall(call),
+	}); err != nil {
+		return ToolResult{}, err
+	}
+	approvalStarted := time.Now()
+	decision, err := approval.ApproveTool(ctx, ApprovalRequest{
+		AgentID:  agentID,
+		ToolName: call.Name,
+		Risk:     risk,
+		ToolCall: cloneToolCall(call),
+	})
+	if err != nil {
+		wrapped := agentError(ErrorCategoryApproval, "tool.approval", err)
+		wrapped.AgentID = agentID
+		wrapped.ToolName = call.Name
+		wrapped.RequestID = requestID
+		wrapped.Round = round
+		if emitErr := a.emit(ctx, Event{
+			Type:            EventAfterApproval,
+			ToolName:        call.Name,
+			ToolRisk:        risk,
+			RequestID:       requestID,
+			Round:           round,
+			Duration:        eventDurationSince(approvalStarted),
+			EstimatedTokens: estimatedTokens,
+			Approved:        decision.Approved,
+			ApprovalReason:  decision.Reason,
+			ToolCall:        approvalEventToolCall(call),
+			Error:           wrapped,
+		}); emitErr != nil {
+			return ToolResult{}, emitErr
+		}
+		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+	}
+	decision = normalizeApprovalDecision(decision)
+	if !decision.Approved {
+		cause := fmt.Errorf("%w: %s", ErrApprovalDenied, decision.Reason)
+		wrapped := agentError(ErrorCategoryApproval, "tool.approval", cause)
+		wrapped.AgentID = agentID
+		wrapped.ToolName = call.Name
+		wrapped.RequestID = requestID
+		wrapped.Round = round
+		if emitErr := a.emit(ctx, Event{
+			Type:            EventAfterApproval,
+			ToolName:        call.Name,
+			ToolRisk:        risk,
+			RequestID:       requestID,
+			Round:           round,
+			Duration:        eventDurationSince(approvalStarted),
+			EstimatedTokens: estimatedTokens,
+			Approved:        false,
+			ApprovalReason:  decision.Reason,
+			ToolCall:        approvalEventToolCall(call),
+			Error:           wrapped,
+		}); emitErr != nil {
+			return ToolResult{}, emitErr
+		}
+		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+	}
+	if err := a.emit(ctx, Event{
+		Type:            EventAfterApproval,
+		ToolName:        call.Name,
+		ToolRisk:        risk,
+		RequestID:       requestID,
+		Round:           round,
+		Duration:        eventDurationSince(approvalStarted),
+		EstimatedTokens: estimatedTokens,
+		Approved:        true,
+		ApprovalReason:  decision.Reason,
+		ToolCall:        approvalEventToolCall(call),
+	}); err != nil {
+		return ToolResult{}, err
+	}
+
+	if err := a.emit(ctx, Event{
+		Type:            EventBeforeTool,
+		ToolName:        call.Name,
+		ToolRisk:        risk,
+		RequestID:       requestID,
+		Round:           round,
+		EstimatedTokens: estimatedTokens,
+		ToolCall:        cloneToolCall(call),
+	}); err != nil {
+		return ToolResult{}, err
+	}
+	result, err := tool.Call(ctx, cloneToolCall(call))
+	if result.CallID == "" {
+		result.CallID = call.ID
+	}
+	if result.Name == "" {
+		result.Name = call.Name
+	}
+	wrappedErr := err
+	if err != nil {
+		category := classifyError(err)
+		if category == "" {
+			category = ErrorCategoryTool
+		}
+		wrapped := agentError(category, "tool.call", err)
+		wrapped.AgentID = agentID
+		wrapped.ToolName = call.Name
+		wrapped.RequestID = requestID
+		wrapped.Round = round
+		wrappedErr = wrapped
+	}
+	afterTokens := a.estimatedToolCallTokens(call, result)
+	if emitErr := a.emit(ctx, Event{
+		Type:            EventAfterTool,
+		ToolName:        call.Name,
+		ToolRisk:        risk,
+		RequestID:       requestID,
+		Round:           round,
+		Duration:        eventDurationSince(started),
+		EstimatedTokens: afterTokens,
+		ToolCall:        cloneToolCall(call),
+		ToolResult:      cloneToolResult(result),
+		Error:           wrappedErr,
+	}); emitErr != nil {
+		return ToolResult{}, emitErr
+	}
+	if err != nil {
+		return ToolResult{}, wrappedErr
+	}
+	return cloneToolResult(result), nil
+}
+
+func (a *Agent) failTool(ctx context.Context, call ToolCall, requestID string, round int, started time.Time, estimatedTokens int, err error) (ToolResult, error) {
+	if emitErr := a.emit(ctx, Event{
+		Type:            EventAfterTool,
+		ToolName:        call.Name,
+		RequestID:       requestID,
+		Round:           round,
+		Duration:        eventDurationSince(started),
+		EstimatedTokens: estimatedTokens,
+		ToolCall:        cloneToolCall(call),
+		Error:           err,
+	}); emitErr != nil {
+		return ToolResult{}, emitErr
+	}
+	return ToolResult{}, err
+}
+
+func (a *Agent) estimatedToolCallTokens(call ToolCall, result ToolResult) int {
+	content := call.Name
+	if len(call.Arguments) > 0 {
+		content += " " + fmt.Sprint(call.Arguments)
+	}
+	if result.Content != "" {
+		content += " " + result.Content
+	}
+	return a.estimatedTokens([]Message{{Role: RoleAssistant, Content: content}})
+}
+
+func cloneToolCalls(calls []ToolCall) []ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	cloned := make([]ToolCall, len(calls))
+	for i, call := range calls {
+		cloned[i] = cloneToolCall(call)
+	}
+	return cloned
+}
+
+func cloneToolCall(call ToolCall) ToolCall {
+	call.Arguments = cloneAnyMap(call.Arguments)
+	return call
+}
+
+func approvalEventToolCall(call ToolCall) ToolCall {
+	return ToolCall{ID: call.ID, Name: call.Name}
+}
+
+func toolRisk(tool Tool) ToolRisk {
+	provider, ok := tool.(ToolRiskProvider)
+	if !ok {
+		return ToolRiskUnspecified
+	}
+	return provider.Risk()
+}
+
+func cloneToolResult(result ToolResult) ToolResult {
+	result.Metadata = cloneAnyMap(result.Metadata)
+	return result
+}
