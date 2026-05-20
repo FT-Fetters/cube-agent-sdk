@@ -2,9 +2,11 @@ package agent
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -49,6 +51,38 @@ func trimDotEnvValueForLiveTests(value string) string {
 		return value[1 : len(value)-1]
 	}
 	return value
+}
+
+// findRepoRootForLiveTests walks upward so live tests can load root-level files from any package.
+func findRepoRootForLiveTests(start string) (string, error) {
+	dir := start
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("could not find go.mod from %s", start)
+		}
+		dir = parent
+	}
+}
+
+// loadRootDotEnvForLiveTests treats a missing root .env as an empty live-test configuration.
+func loadRootDotEnvForLiveTests(root string) (map[string]string, error) {
+	file, err := os.Open(filepath.Join(root, ".env"))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	return parseDotEnvForLiveTests(file)
 }
 
 // requiredLiveModelEnvForTests lists the credentials needed to run live API tests.
@@ -208,5 +242,49 @@ func TestLoadLiveModelConfigForTestsReportsMissingRequiredVariables(t *testing.T
 		if !strings.Contains(skip, name) {
 			t.Fatalf("skip = %q, want missing %s", skip, name)
 		}
+	}
+}
+
+func TestFindRepoRootForLiveTestsFindsGoModuleFromNestedDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findRepoRootForLiveTests(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != root {
+		t.Fatalf("root = %q, want %q", got, root)
+	}
+}
+
+func TestLoadRootDotEnvForLiveTestsReturnsEmptyMapWhenFileMissing(t *testing.T) {
+	values, err := loadRootDotEnvForLiveTests(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("values = %#v, want empty map", values)
+	}
+}
+
+func TestLoadRootDotEnvForLiveTestsParsesRootEnvFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("MODEL_NAME=dotenv-model\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	values, err := loadRootDotEnvForLiveTests(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["MODEL_NAME"] != "dotenv-model" {
+		t.Fatalf("MODEL_NAME = %q, want dotenv-model", values["MODEL_NAME"])
 	}
 }
