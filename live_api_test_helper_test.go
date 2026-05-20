@@ -120,6 +120,67 @@ func liveModelConfigForTests(dotEnv map[string]string) (ModelConfig, string, err
 	}, "", nil
 }
 
+// requireLiveModelConfigForTest skips live tests unless a complete root or environment config exists.
+func requireLiveModelConfigForTest(t *testing.T) ModelConfig {
+	t.Helper()
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := findRepoRootForLiveTests(workingDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dotEnv, err := loadRootDotEnvForLiveTests(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config, skip, err := liveModelConfigForTests(dotEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skip != "" {
+		t.Skip(skip)
+	}
+	return config
+}
+
+// formatLiveAPIErrorForTest keeps live failures useful without exposing credentials.
+func formatLiveAPIErrorForTest(err error) string {
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) {
+		return fmt.Sprintf(
+			"%v category=%s operation=%s request=%s",
+			err,
+			agentErr.Category,
+			agentErr.Operation,
+			agentErr.RequestID,
+		)
+	}
+	return err.Error()
+}
+
+// logLiveAPIObservationsForTest emits only the sanitized telemetry fields safe for verbose test logs.
+func logLiveAPIObservationsForTest(t *testing.T, observations []Observation) {
+	t.Helper()
+
+	for i, observation := range observations {
+		t.Logf(
+			"observation=%d event=%s failed=%t round=%d duration=%s estimated_tokens=%d request=%s error_category=%s",
+			i+1,
+			observation.Type,
+			observation.Failed,
+			observation.Round,
+			observation.Duration,
+			observation.EstimatedTokens,
+			observation.RequestID,
+			observation.ErrorCategory,
+		)
+	}
+}
+
 func TestParseDotEnvForLiveTestsParsesPracticalCredentialFile(t *testing.T) {
 	values, err := parseDotEnvForLiveTests(strings.NewReader(`
 # local live settings
