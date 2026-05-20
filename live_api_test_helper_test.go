@@ -184,7 +184,7 @@ func logLiveAPIObservationsForTest(t *testing.T, observations []Observation) {
 func TestParseDotEnvForLiveTestsParsesPracticalCredentialFile(t *testing.T) {
 	values, err := parseDotEnvForLiveTests(strings.NewReader(`
 # local live settings
-MODEL_API_TYPE=openai-responses
+MODEL_API_TYPE=openai-compatible
 MODEL_BASE_URL="https://api.openai.com"
 MODEL_API_KEY='secret-key'
 MODEL_NAME=gpt-test
@@ -196,7 +196,7 @@ IGNORED_SPACES = value with spaces
 	}
 
 	want := map[string]string{
-		"MODEL_API_TYPE": "openai-responses",
+		"MODEL_API_TYPE": "openai-compatible",
 		"MODEL_BASE_URL": "https://api.openai.com",
 		"MODEL_API_KEY":  "secret-key",
 		"MODEL_NAME":     "gpt-test",
@@ -230,7 +230,7 @@ func TestParseDotEnvForLiveTestsRejectsEmptyKey(t *testing.T) {
 }
 
 func TestLoadLiveModelConfigForTestsUsesEnvironmentBeforeDotEnv(t *testing.T) {
-	t.Setenv("MODEL_API_TYPE", string(ModelAPIOpenAIResponses))
+	t.Setenv("MODEL_API_TYPE", string(ModelAPIOpenAICompatible))
 	t.Setenv("MODEL_BASE_URL", "https://env.example.test")
 	t.Setenv("MODEL_API_KEY", "env-key")
 	t.Setenv("MODEL_NAME", "env-model")
@@ -249,8 +249,8 @@ func TestLoadLiveModelConfigForTestsUsesEnvironmentBeforeDotEnv(t *testing.T) {
 	if skip != "" {
 		t.Fatalf("skip = %q, want empty", skip)
 	}
-	if config.APIType != ModelAPIOpenAIResponses {
-		t.Fatalf("APIType = %q, want %q", config.APIType, ModelAPIOpenAIResponses)
+	if config.APIType != ModelAPIOpenAICompatible {
+		t.Fatalf("APIType = %q, want %q", config.APIType, ModelAPIOpenAICompatible)
 	}
 	if config.BaseURL != "https://env.example.test" || config.APIKey != "env-key" || config.Model != "env-model" {
 		t.Fatalf("config = %#v, want environment values", config)
@@ -291,7 +291,7 @@ func TestLoadLiveModelConfigForTestsReportsMissingRequiredVariables(t *testing.T
 	}
 
 	config, skip, err := liveModelConfigForTests(map[string]string{
-		"MODEL_API_TYPE": string(ModelAPIOpenAIResponses),
+		"MODEL_API_TYPE": string(ModelAPIOpenAICompatible),
 	})
 	if err != nil {
 		t.Fatal(err)
