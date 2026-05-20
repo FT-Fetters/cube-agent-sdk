@@ -1,0 +1,83 @@
+examples/examples_test.go
+  26989bf0183af316 38
+model_factory.go
+  d31953c466b4e27c 14,29,42-49
+openai_responses_test.go
+  5483fbb74f055fbf 1-385
+providers.go
+  d31953c466b4e27c 17-25
+README.md
+  26989bf0183af316 99-101,140,165-166,196-219
+model_factory_test.go
+  d31953c466b4e27c 5-6,15-17,48-57,76-79,85-94
+internal/providers/openai/responses.go
+  5483fbb74f055fbf 1-398
+CHANGELOG.md
+  d31953c466b4e27c 15-16
+internal/providers/openai/openai.go
+  5483fbb74f055fbf 26,28
+examples/model_factory/main.go
+  d31953c466b4e27c 36-38,48-49,55-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "a0432e1055fcd070fa77fadfc08feab0467728cb",
+  "prompts": {
+    "26989bf0183af316": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4360-d336-7f12-8b84-a675806e246a",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 124,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/fc9d6d571d3072c0ca8638de3e0b5db2b5f82f3227b4894756882702201ba176"
+    },
+    "5483fbb74f055fbf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3e53-d491-7890-94c7-7b5ebb623f65",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 785,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/1dee90fdaa723dc163b0df51c8ce0c18beed8033ae5c6ae2741cb2349f1cf5e0"
+    },
+    "7a4f7aa709516e8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3dcf-a288-75a1-b515-1bed3b367a05",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 690,
+      "overriden_lines": 0
+    },
+    "d31953c466b4e27c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5dd023d7-5401-4946-87ff-fd20dea0a2d2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 62,
+      "total_deletions": 0,
+      "accepted_lines": 62,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/600a5884b6e2492c6dead12d752ec84aa0478cc9dd0f003322e1a9d89baebae9"
+    }
+  }
+}
