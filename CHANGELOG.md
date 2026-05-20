@@ -12,6 +12,8 @@ release. Dates use ISO 8601 format.
 - Initial SDK runtime for managed agent conversations, tools, approvals, hooks,
   observers, skills, compaction, session state, MCP metadata, and subagents.
 - OpenAI-compatible chat completions adapter with local HTTP test coverage.
+- OpenAI Responses API adapter with text output, function tools, tool-call
+  parsing, and raw output replay for tool loops.
 - Unified model factory for selecting provider API type from configuration.
 - Anthropic Messages adapter for `/v1/messages` endpoints.
 - Structured tool schemas and validation before tool execution.

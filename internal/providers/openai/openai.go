@@ -23,7 +23,9 @@ type Role = core.Role
 
 const (
 	RoleSystem    = core.RoleSystem
+	RoleUser      = core.RoleUser
 	RoleAssistant = core.RoleAssistant
+	RoleTool      = core.RoleTool
 )
 
 const openAICompatibleChatCompletionsPath = "/chat/completions"

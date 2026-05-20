@@ -35,6 +35,7 @@ func TestTask9ExamplesAndReadmeCoverage(t *testing.T) {
 	sections := []string{
 		"## Quick Start",
 		"## OpenAI-Compatible Models",
+		"## OpenAI Responses Models",
 		"## Optional Live API Tests",
 		"go test -v -run '^TestLiveAPIModelRun$' .",
 		"## Built-In Model API Types",

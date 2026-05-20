@@ -96,7 +96,9 @@ go run ./examples/live_api
 ```
 
 Use `MODEL_API_TYPE=openai-compatible` with an OpenAI-compatible
-`MODEL_BASE_URL` to run the same example against a chat completions endpoint.
+`MODEL_BASE_URL` to run the same example against a chat completions endpoint,
+or `MODEL_API_TYPE=openai-responses` with `MODEL_BASE_URL=https://api.openai.com`
+to use OpenAI's Responses API.
 
 ## Optional Live API Tests
 
@@ -135,6 +137,7 @@ The SDK provides:
 - Runtime abstractions: `Agent`, `Model`, `StreamModel`, `Tool`,
   `ApprovalPolicy`, `Hook`, `Observer`, `Compactor`, and session APIs.
 - OpenAI-compatible chat completions adapter.
+- OpenAI Responses API adapter.
 - Tool descriptor and JSON Schema subset for model-facing function calling.
 - Tool argument validation before local tool execution.
 - MCP stdio client and MCP-to-`Tool` bridge.
@@ -159,6 +162,8 @@ Use `NewModel` when you want application code to choose a provider wire
 protocol through configuration. The SDK currently includes:
 
 - `ModelAPIOpenAICompatible` for `/chat/completions` endpoints.
+- `ModelAPIOpenAIResponses` for OpenAI Responses-style `/v1/responses`
+  endpoints.
 - `ModelAPIAnthropicMessages` for Anthropic Messages-style `/v1/messages`
   endpoints.
 
@@ -187,6 +192,31 @@ model, err := agent.NewModel(agent.ModelConfig{
 
 `NewModel` is a convenience factory. Provider-specific constructors remain
 available when an application wants protocol-specific fields or clearer wiring.
+
+## OpenAI Responses Models
+
+Use `NewOpenAIResponsesModel` or `NewModel` with
+`ModelAPIOpenAIResponses` for OpenAI's Responses API. `BaseURL` can be an API
+root, a `/v1` URL, or a full URL ending in `/v1/responses`.
+
+```go
+model, err := agent.NewOpenAIResponsesModel(agent.OpenAIResponsesConfig{
+	BaseURL: os.Getenv("OPENAI_BASE_URL"),
+	APIKey:  os.Getenv("OPENAI_API_KEY"),
+	Model:   os.Getenv("OPENAI_RESPONSES_MODEL"),
+})
+if err != nil {
+	return err
+}
+```
+
+The adapter maps the SDK system prompt to Responses `instructions`, maps tools
+to Responses function tools, maps SDK tool calls to `function_call` items, and
+maps SDK tool results to `function_call_output` items. It preserves raw
+Responses output metadata on assistant messages so multi-round tool loops can
+replay reasoning and function-call context without using server-side response
+state. Set `MaxTokens` to send `max_output_tokens`, and set `Store` when your
+application needs explicit control over OpenAI's response storage setting.
 
 ## OpenAI-Compatible Models
 

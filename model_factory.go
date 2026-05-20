@@ -11,6 +11,7 @@ type ModelAPIType string
 
 const (
 	ModelAPIOpenAICompatible  ModelAPIType = "openai-compatible"
+	ModelAPIOpenAIResponses   ModelAPIType = "openai-responses"
 	ModelAPIAnthropicMessages ModelAPIType = "anthropic-messages"
 )
 
@@ -25,6 +26,7 @@ type ModelConfig struct {
 	HTTPClient       *http.Client
 	MaxTokens        int
 	AnthropicVersion string
+	Store            *bool
 }
 
 // NewModel creates a model adapter for the requested provider API type.
@@ -36,6 +38,15 @@ func NewModel(config ModelConfig) (Model, error) {
 			APIKey:     config.APIKey,
 			Model:      config.Model,
 			HTTPClient: config.HTTPClient,
+		})
+	case ModelAPIOpenAIResponses:
+		return NewOpenAIResponsesModel(OpenAIResponsesConfig{
+			BaseURL:    config.BaseURL,
+			APIKey:     config.APIKey,
+			Model:      config.Model,
+			HTTPClient: config.HTTPClient,
+			MaxTokens:  config.MaxTokens,
+			Store:      config.Store,
 		})
 	case ModelAPIAnthropicMessages:
 		return NewAnthropicMessagesModel(AnthropicMessagesConfig{

@@ -33,6 +33,9 @@ func main() {
 		case "/v1/chat/completions":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"hello from OpenAI-compatible"}}]}`)
+		case "/v1/responses":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello from OpenAI Responses"}]}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -42,11 +45,15 @@ func main() {
 	apiType := agent.ModelAPIAnthropicMessages
 	if os.Getenv("EXAMPLE_MODEL_API_TYPE") == string(agent.ModelAPIOpenAICompatible) {
 		apiType = agent.ModelAPIOpenAICompatible
+	} else if os.Getenv("EXAMPLE_MODEL_API_TYPE") == string(agent.ModelAPIOpenAIResponses) {
+		apiType = agent.ModelAPIOpenAIResponses
 	}
 
 	modelName := "claude-example"
 	if apiType == agent.ModelAPIOpenAICompatible {
 		modelName = "openai-compatible-example"
+	} else if apiType == agent.ModelAPIOpenAIResponses {
+		modelName = "openai-responses-example"
 	}
 
 	model, err := agent.NewModel(agent.ModelConfig{

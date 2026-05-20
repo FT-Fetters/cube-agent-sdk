@@ -14,6 +14,15 @@ func NewOpenAICompatibleModel(config OpenAICompatibleConfig) (*OpenAICompatibleM
 	return openai.NewOpenAICompatibleModel(config)
 }
 
+type OpenAIResponsesConfig = openai.OpenAIResponsesConfig
+type OpenAIResponsesModel = openai.OpenAIResponsesModel
+
+// NewOpenAIResponsesModel creates a Model from OpenAI Responses API configuration.
+// BaseURL may be a root URL, /v1 URL, or full /v1/responses URL.
+func NewOpenAIResponsesModel(config OpenAIResponsesConfig) (*OpenAIResponsesModel, error) {
+	return openai.NewOpenAIResponsesModel(config)
+}
+
 type AnthropicMessagesConfig = anthropic.AnthropicMessagesConfig
 type AnthropicMessagesModel = anthropic.AnthropicMessagesModel
 
