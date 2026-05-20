@@ -101,17 +101,20 @@ Use `MODEL_API_TYPE=openai-compatible` with an OpenAI-compatible
 ## Optional Live API Tests
 
 The default test suite uses local fakes and `httptest` servers. To exercise a
-real provider, create a root `.env` file with a complete model configuration:
+real provider, provide a complete model configuration in the process environment
+or a root `.env` file:
 
 ```bash
-MODEL_API_TYPE=openai-responses
-MODEL_BASE_URL=https://api.openai.com
+MODEL_API_TYPE=anthropic-messages
+MODEL_BASE_URL=https://api.anthropic.com
 MODEL_API_KEY=<your-api-key>
-MODEL_NAME=gpt-4.1-mini
+MODEL_NAME=claude-sonnet-4-6
 ```
 
-When these variables are present, the live API test runs automatically. When any
-required variable is missing, it is skipped.
+When these variables are present in the process environment or root .env as a
+complete configuration, the live API test runs automatically. When any required
+variable is missing, it is skipped. Do not commit real credentials; keep local
+`.env` files out of version control.
 
 Run the live test with verbose output:
 

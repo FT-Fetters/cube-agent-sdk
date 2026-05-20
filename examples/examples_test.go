@@ -54,15 +54,29 @@ func TestTask9ExamplesAndReadmeCoverage(t *testing.T) {
 			t.Fatalf("README must contain section %q", section)
 		}
 	}
+	for _, phrase := range []string{
+		"MODEL_API_TYPE=anthropic-messages",
+		"MODEL_BASE_URL=https://api.anthropic.com",
+		"When these variables are present in the process environment or root .env",
+		"Do not commit real credentials",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("README must contain phrase %q", phrase)
+		}
+	}
 
 	contributing, err := os.ReadFile(filepath.Join("..", "CONTRIBUTING.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	contributingText := string(contributing)
+	// Keep live-test docs tied to provider types committed in this repository.
 	for _, phrase := range []string{
 		"Optional live API tests",
-		"MODEL_API_TYPE",
+		"MODEL_API_TYPE=anthropic-messages",
+		"MODEL_BASE_URL=https://api.anthropic.com",
+		"When these variables are present in the process environment or root .env",
+		"Do not commit real credentials",
 		"go test -v -run '^TestLiveAPIModelRun$' .",
 	} {
 		if !strings.Contains(contributingText, phrase) {
