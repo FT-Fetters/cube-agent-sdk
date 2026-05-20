@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -48,6 +49,41 @@ func trimDotEnvValueForLiveTests(value string) string {
 		return value[1 : len(value)-1]
 	}
 	return value
+}
+
+// requiredLiveModelEnvForTests lists the credentials needed to run live API tests.
+var requiredLiveModelEnvForTests = []string{
+	"MODEL_API_TYPE",
+	"MODEL_BASE_URL",
+	"MODEL_API_KEY",
+	"MODEL_NAME",
+}
+
+func liveModelConfigForTests(dotEnv map[string]string) (ModelConfig, string, error) {
+	value := func(key string) string {
+		if envValue := strings.TrimSpace(os.Getenv(key)); envValue != "" {
+			return envValue
+		}
+		return strings.TrimSpace(dotEnv[key])
+	}
+
+	var missing []string
+	for _, key := range requiredLiveModelEnvForTests {
+		if value(key) == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		return ModelConfig{}, "missing live API environment variables: " + strings.Join(missing, ", "), nil
+	}
+
+	return ModelConfig{
+		APIType:          ModelAPIType(value("MODEL_API_TYPE")),
+		BaseURL:          value("MODEL_BASE_URL"),
+		APIKey:           value("MODEL_API_KEY"),
+		Model:            value("MODEL_NAME"),
+		AnthropicVersion: value("ANTHROPIC_VERSION"),
+	}, "", nil
 }
 
 func TestParseDotEnvForLiveTestsParsesPracticalCredentialFile(t *testing.T) {
@@ -95,5 +131,82 @@ func TestParseDotEnvForLiveTestsRejectsEmptyKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "empty key") {
 		t.Fatalf("err = %v, want empty key message", err)
+	}
+}
+
+func TestLoadLiveModelConfigForTestsUsesEnvironmentBeforeDotEnv(t *testing.T) {
+	t.Setenv("MODEL_API_TYPE", string(ModelAPIOpenAIResponses))
+	t.Setenv("MODEL_BASE_URL", "https://env.example.test")
+	t.Setenv("MODEL_API_KEY", "env-key")
+	t.Setenv("MODEL_NAME", "env-model")
+	t.Setenv("ANTHROPIC_VERSION", "2025-01-01")
+
+	config, skip, err := liveModelConfigForTests(map[string]string{
+		"MODEL_API_TYPE":    string(ModelAPIAnthropicMessages),
+		"MODEL_BASE_URL":    "https://dotenv.example.test",
+		"MODEL_API_KEY":     "dotenv-key",
+		"MODEL_NAME":        "dotenv-model",
+		"ANTHROPIC_VERSION": "2023-06-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skip != "" {
+		t.Fatalf("skip = %q, want empty", skip)
+	}
+	if config.APIType != ModelAPIOpenAIResponses {
+		t.Fatalf("APIType = %q, want %q", config.APIType, ModelAPIOpenAIResponses)
+	}
+	if config.BaseURL != "https://env.example.test" || config.APIKey != "env-key" || config.Model != "env-model" {
+		t.Fatalf("config = %#v, want environment values", config)
+	}
+	if config.AnthropicVersion != "2025-01-01" {
+		t.Fatalf("AnthropicVersion = %q, want environment value", config.AnthropicVersion)
+	}
+}
+
+func TestLoadLiveModelConfigForTestsUsesDotEnvWhenEnvironmentMissing(t *testing.T) {
+	for _, key := range []string{"MODEL_API_TYPE", "MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME", "ANTHROPIC_VERSION"} {
+		t.Setenv(key, "")
+	}
+
+	config, skip, err := liveModelConfigForTests(map[string]string{
+		"MODEL_API_TYPE": string(ModelAPIAnthropicMessages),
+		"MODEL_BASE_URL": "https://dotenv.example.test",
+		"MODEL_API_KEY":  "dotenv-key",
+		"MODEL_NAME":     "dotenv-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skip != "" {
+		t.Fatalf("skip = %q, want empty", skip)
+	}
+	if config.APIType != ModelAPIAnthropicMessages {
+		t.Fatalf("APIType = %q, want %q", config.APIType, ModelAPIAnthropicMessages)
+	}
+	if config.BaseURL != "https://dotenv.example.test" || config.APIKey != "dotenv-key" || config.Model != "dotenv-model" {
+		t.Fatalf("config = %#v, want .env values", config)
+	}
+}
+
+func TestLoadLiveModelConfigForTestsReportsMissingRequiredVariables(t *testing.T) {
+	for _, key := range []string{"MODEL_API_TYPE", "MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME", "ANTHROPIC_VERSION"} {
+		t.Setenv(key, "")
+	}
+
+	config, skip, err := liveModelConfigForTests(map[string]string{
+		"MODEL_API_TYPE": string(ModelAPIOpenAIResponses),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config != (ModelConfig{}) {
+		t.Fatalf("config = %#v, want zero config", config)
+	}
+	for _, name := range []string{"MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME"} {
+		if !strings.Contains(skip, name) {
+			t.Fatalf("skip = %q, want missing %s", skip, name)
+		}
 	}
 }
