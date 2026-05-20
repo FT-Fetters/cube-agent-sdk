@@ -9,7 +9,7 @@ import (
 
 func TestLiveAPIModelRun(t *testing.T) {
 	config := requireLiveModelConfigForTest(t)
-	t.Logf("live api type=%s model=%s base_url=%s", config.APIType, config.Model, config.BaseURL)
+	t.Logf("live api type=%s model=%s base_url=%s", config.APIType, config.Model, safeBaseURLForLiveTest(config.BaseURL))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

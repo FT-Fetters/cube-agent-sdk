@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,17 +125,29 @@ func liveModelConfigForTests(dotEnv map[string]string) (ModelConfig, string, err
 func requireLiveModelConfigForTest(t *testing.T) ModelConfig {
 	t.Helper()
 
-	workingDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, err := findRepoRootForLiveTests(workingDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dotEnv, err := loadRootDotEnvForLiveTests(root)
-	if err != nil {
-		t.Fatal(err)
+	return requireLiveModelConfigFromSourcesForTest(t, func() (map[string]string, error) {
+		workingDir, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		root, err := findRepoRootForLiveTests(workingDir)
+		if err != nil {
+			return nil, err
+		}
+		return loadRootDotEnvForLiveTests(root)
+	})
+}
+
+func requireLiveModelConfigFromSourcesForTest(t *testing.T, loadDotEnv func() (map[string]string, error)) ModelConfig {
+	t.Helper()
+
+	dotEnv := map[string]string{}
+	if !hasRequiredLiveModelEnvForTests() {
+		var err error
+		dotEnv, err = loadDotEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	config, skip, err := liveModelConfigForTests(dotEnv)
@@ -147,19 +160,45 @@ func requireLiveModelConfigForTest(t *testing.T) ModelConfig {
 	return config
 }
 
+func hasRequiredLiveModelEnvForTests() bool {
+	for _, key := range requiredLiveModelEnvForTests {
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func safeBaseURLForLiveTest(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "<invalid>"
+	}
+
+	return (&url.URL{
+		Scheme:  parsed.Scheme,
+		Host:    parsed.Host,
+		Path:    parsed.Path,
+		RawPath: parsed.RawPath,
+	}).String()
+}
+
 // formatLiveAPIErrorForTest keeps live failures useful without exposing credentials.
 func formatLiveAPIErrorForTest(err error) string {
+	if err == nil {
+		return "live api error_type=<nil>"
+	}
+
 	var agentErr *AgentError
 	if errors.As(err, &agentErr) {
 		return fmt.Sprintf(
-			"%v category=%s operation=%s request=%s",
-			err,
+			"live api error category=%s operation=%s request=%s",
 			agentErr.Category,
 			agentErr.Operation,
 			agentErr.RequestID,
 		)
 	}
-	return err.Error()
+	return fmt.Sprintf("live api error_type=%T", err)
 }
 
 // logLiveAPIObservationsForTest emits only the sanitized telemetry fields safe for verbose test logs.
@@ -178,6 +217,72 @@ func logLiveAPIObservationsForTest(t *testing.T, observations []Observation) {
 			observation.RequestID,
 			observation.ErrorCategory,
 		)
+	}
+}
+
+func TestSafeBaseURLForLiveTestStripsSensitiveURLParts(t *testing.T) {
+	got := safeBaseURLForLiveTest("https://user:password@api.example.test/v1/models?api_key=secret#token")
+	want := "https://api.example.test/v1/models"
+	if got != want {
+		t.Fatalf("safe base URL = %q, want %q", got, want)
+	}
+}
+
+func TestSafeBaseURLForLiveTestRejectsInvalidURL(t *testing.T) {
+	got := safeBaseURLForLiveTest("not-a-url")
+	if got != "<invalid>" {
+		t.Fatalf("safe base URL = %q, want <invalid>", got)
+	}
+}
+
+func TestFormatLiveAPIErrorForTestOmitsRawAgentErrorText(t *testing.T) {
+	err := &AgentError{
+		Category:  ErrorCategoryModel,
+		Operation: "model.generate",
+		RequestID: "req-1",
+		Cause:     errors.New("provider failed with api_key=secret"),
+	}
+
+	got := formatLiveAPIErrorForTest(err)
+	for _, unsafe := range []string{"provider failed", "api_key=secret", "secret"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("formatted error = %q, want no raw provider text containing %q", got, unsafe)
+		}
+	}
+	for _, want := range []string{"category=model", "operation=model.generate", "request=req-1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatted error = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestFormatLiveAPIErrorForTestOmitsRawNonAgentErrorText(t *testing.T) {
+	got := formatLiveAPIErrorForTest(errors.New("transport failed with token=secret"))
+	if strings.Contains(got, "transport failed") || strings.Contains(got, "token=secret") || strings.Contains(got, "secret") {
+		t.Fatalf("formatted error = %q, want no raw error text", got)
+	}
+	if !strings.Contains(got, "error_type=") {
+		t.Fatalf("formatted error = %q, want type metadata", got)
+	}
+}
+
+func TestRequireLiveModelConfigForTestUsesEnvironmentWithoutDotEnv(t *testing.T) {
+	t.Setenv("MODEL_API_TYPE", string(ModelAPIOpenAICompatible))
+	t.Setenv("MODEL_BASE_URL", "https://env.example.test")
+	t.Setenv("MODEL_API_KEY", "env-key")
+	t.Setenv("MODEL_NAME", "env-model")
+
+	loaderCalled := false
+	config := requireLiveModelConfigFromSourcesForTest(t, func() (map[string]string, error) {
+		loaderCalled = true
+		return nil, errors.New("malformed .env should not be parsed when env config is complete")
+	})
+
+	if loaderCalled {
+		t.Fatal("loaded .env despite complete process environment config")
+	}
+	if config.APIType != ModelAPIOpenAICompatible || config.BaseURL != "https://env.example.test" || config.APIKey != "env-key" || config.Model != "env-model" {
+		t.Fatalf("config = %#v, want environment values", config)
 	}
 }
 
