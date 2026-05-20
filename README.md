@@ -98,6 +98,33 @@ go run ./examples/live_api
 Use `MODEL_API_TYPE=openai-compatible` with an OpenAI-compatible
 `MODEL_BASE_URL` to run the same example against a chat completions endpoint.
 
+## Optional Live API Tests
+
+The default test suite uses local fakes and `httptest` servers. To exercise a
+real provider, create a root `.env` file with a complete model configuration:
+
+```bash
+MODEL_API_TYPE=openai-responses
+MODEL_BASE_URL=https://api.openai.com
+MODEL_API_KEY=<your-api-key>
+MODEL_NAME=gpt-4.1-mini
+```
+
+When these variables are present, the live API test runs automatically. When any
+required variable is missing, it is skipped.
+
+Run the live test with verbose output:
+
+```bash
+go test -v -run '^TestLiveAPIModelRun$' .
+```
+
+Run any single test with verbose output by replacing the test name:
+
+```bash
+go test -v -run '^TestName$' ./...
+```
+
 ## SDK Responsibilities
 
 The SDK provides:

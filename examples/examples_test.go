@@ -35,6 +35,8 @@ func TestTask9ExamplesAndReadmeCoverage(t *testing.T) {
 	sections := []string{
 		"## Quick Start",
 		"## OpenAI-Compatible Models",
+		"## Optional Live API Tests",
+		"go test -v -run '^TestLiveAPIModelRun$' .",
 		"## Built-In Model API Types",
 		"## Anthropic Messages",
 		"## Tool Schema",
@@ -50,6 +52,21 @@ func TestTask9ExamplesAndReadmeCoverage(t *testing.T) {
 	for _, section := range sections {
 		if !strings.Contains(text, section) {
 			t.Fatalf("README must contain section %q", section)
+		}
+	}
+
+	contributing, err := os.ReadFile(filepath.Join("..", "CONTRIBUTING.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contributingText := string(contributing)
+	for _, phrase := range []string{
+		"Optional live API tests",
+		"MODEL_API_TYPE",
+		"go test -v -run '^TestLiveAPIModelRun$' .",
+	} {
+		if !strings.Contains(contributingText, phrase) {
+			t.Fatalf("CONTRIBUTING must contain phrase %q", phrase)
 		}
 	}
 }
