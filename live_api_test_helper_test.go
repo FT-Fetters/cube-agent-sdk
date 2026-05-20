@@ -201,6 +201,24 @@ func formatLiveAPIErrorForTest(err error) string {
 	return fmt.Sprintf("live api error_type=%T", err)
 }
 
+// formatLiveAPIModelConstructionErrorForTest avoids printing raw provider configuration errors.
+func formatLiveAPIModelConstructionErrorForTest(err error) string {
+	if err == nil {
+		return "live api model construction error_type=<nil>"
+	}
+
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) {
+		return fmt.Sprintf(
+			"live api model construction error category=%s operation=%s request=%s",
+			agentErr.Category,
+			agentErr.Operation,
+			agentErr.RequestID,
+		)
+	}
+	return fmt.Sprintf("live api model construction error_type=%T", err)
+}
+
 // logLiveAPIObservationsForTest emits only the sanitized telemetry fields safe for verbose test logs.
 func logLiveAPIObservationsForTest(t *testing.T, observations []Observation) {
 	t.Helper()
@@ -263,6 +281,31 @@ func TestFormatLiveAPIErrorForTestOmitsRawNonAgentErrorText(t *testing.T) {
 	}
 	if !strings.Contains(got, "error_type=") {
 		t.Fatalf("formatted error = %q, want type metadata", got)
+	}
+}
+
+func TestFormatLiveAPIModelConstructionErrorForTestOmitsRawConfigText(t *testing.T) {
+	_, err := NewModel(ModelConfig{
+		APIType: ModelAPIOpenAICompatible,
+		BaseURL: "https://api.example.test/%zz?api_key=secret",
+		APIKey:  "secret-api-key",
+		Model:   "live-model",
+	})
+	if err == nil {
+		t.Fatal("NewModel returned nil error, want malformed base URL error")
+	}
+	if !strings.Contains(err.Error(), "api_key=secret") {
+		t.Fatalf("test setup error = %q, want raw error to contain query secret", err.Error())
+	}
+
+	got := formatLiveAPIModelConstructionErrorForTest(err)
+	for _, unsafe := range []string{"api.example.test", "%zz", "api_key=secret", "secret"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("formatted construction error = %q, want no raw config text containing %q", got, unsafe)
+		}
+	}
+	if !strings.Contains(got, "error_type=") {
+		t.Fatalf("formatted construction error = %q, want type metadata", got)
 	}
 }
 

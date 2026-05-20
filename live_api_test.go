@@ -16,7 +16,7 @@ func TestLiveAPIModelRun(t *testing.T) {
 
 	model, err := NewModel(config)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal(formatLiveAPIModelConstructionErrorForTest(err))
 	}
 
 	var observations []Observation
