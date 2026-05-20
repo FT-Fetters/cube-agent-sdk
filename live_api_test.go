@@ -16,6 +16,7 @@ func TestLiveAPIModelRun(t *testing.T) {
 
 	model, err := NewModel(config)
 	if err != nil {
+		logLiveAPIDebugForTest(t, err, config)
 		t.Fatal(formatLiveAPIModelConstructionErrorForTest(err))
 	}
 
@@ -33,6 +34,7 @@ func TestLiveAPIModelRun(t *testing.T) {
 
 	reply, err := bot.Run(ctx, "Reply with the exact phrase: live api check ok")
 	if err != nil {
+		logLiveAPIDebugForTest(t, err, config)
 		t.Fatal(formatLiveAPIErrorForTest(err))
 	}
 	if strings.TrimSpace(reply.Content) == "" {

@@ -8,8 +8,18 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+)
+
+const liveAPIDebugSummaryLimitForTest = 260
+
+var (
+	liveAPIDebugStatusPatternForTest = regexp.MustCompile(`(?i)\bstatus\s+([0-9]{3})\b`)
+	liveAPIDebugURLPatternForTest    = regexp.MustCompile(`https?://[^\s"']+`)
+	liveAPIDebugSecretPatternForTest = regexp.MustCompile(`(?i)(api[_-]?key|token|authorization|x-api-key|key)(["']?\s*[:=]\s*["']?)[^"',}\s]+`)
+	liveAPIDebugBearerPatternForTest = regexp.MustCompile(`(?i)(bearer\s+)[^\s"',}]+`)
 )
 
 // parseDotEnvForLiveTests supports the small .env subset needed by live tests.
@@ -219,6 +229,83 @@ func formatLiveAPIModelConstructionErrorForTest(err error) string {
 	return fmt.Sprintf("live api model construction error_type=%T", err)
 }
 
+func liveAPIDebugEnabledForTest() bool {
+	value := strings.TrimSpace(os.Getenv("LIVE_API_DEBUG"))
+	return value == "1" || strings.EqualFold(value, "true")
+}
+
+func logLiveAPIDebugForTest(t *testing.T, err error, config ModelConfig) {
+	t.Helper()
+
+	if !liveAPIDebugEnabledForTest() {
+		return
+	}
+	for _, line := range liveAPIDebugLinesForTest(err, config) {
+		t.Log(line)
+	}
+}
+
+func liveAPIDebugLinesForTest(err error, config ModelConfig) []string {
+	fields := []string{"live api debug"}
+	if err == nil {
+		return []string{strings.Join(append(fields, "error_type=<nil>"), " ")}
+	}
+
+	sourceErr := err
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) {
+		if agentErr.Category != "" {
+			fields = append(fields, fmt.Sprintf("category=%s", agentErr.Category))
+		}
+		if agentErr.Operation != "" {
+			fields = append(fields, fmt.Sprintf("operation=%s", agentErr.Operation))
+		}
+		if agentErr.RequestID != "" {
+			fields = append(fields, fmt.Sprintf("request=%s", agentErr.RequestID))
+		}
+		if agentErr.Cause != nil {
+			sourceErr = agentErr.Cause
+		}
+	} else {
+		fields = append(fields, fmt.Sprintf("error_type=%T", err))
+	}
+
+	summary := sanitizeLiveAPIDebugSummaryForTest(sourceErr.Error(), config)
+	if status := liveAPIHTTPStatusForTest(summary); status != "" {
+		fields = append(fields, "status="+status)
+	}
+	if summary != "" {
+		fields = append(fields, fmt.Sprintf("summary=%q", summary))
+	}
+	return []string{strings.Join(fields, " ")}
+}
+
+func liveAPIHTTPStatusForTest(summary string) string {
+	matches := liveAPIDebugStatusPatternForTest.FindStringSubmatch(summary)
+	if len(matches) != 2 {
+		return ""
+	}
+	return matches[1]
+}
+
+func sanitizeLiveAPIDebugSummaryForTest(summary string, config ModelConfig) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	if strings.TrimSpace(config.APIKey) != "" {
+		summary = strings.ReplaceAll(summary, strings.TrimSpace(config.APIKey), "<redacted>")
+	}
+	summary = liveAPIDebugURLPatternForTest.ReplaceAllStringFunc(summary, safeBaseURLForLiveTest)
+	summary = liveAPIDebugSecretPatternForTest.ReplaceAllString(summary, "$1$2<redacted>")
+	summary = liveAPIDebugBearerPatternForTest.ReplaceAllString(summary, "$1<redacted>")
+	summary = strings.Join(strings.Fields(summary), " ")
+	if len(summary) > liveAPIDebugSummaryLimitForTest {
+		summary = summary[:liveAPIDebugSummaryLimitForTest] + "..."
+	}
+	return summary
+}
+
 // logLiveAPIObservationsForTest emits only the sanitized telemetry fields safe for verbose test logs.
 func logLiveAPIObservationsForTest(t *testing.T, observations []Observation) {
 	t.Helper()
@@ -306,6 +393,59 @@ func TestFormatLiveAPIModelConstructionErrorForTestOmitsRawConfigText(t *testing
 	}
 	if !strings.Contains(got, "error_type=") {
 		t.Fatalf("formatted construction error = %q, want type metadata", got)
+	}
+}
+
+func TestLiveAPIDebugEnabledForTestReadsExplicitOptIn(t *testing.T) {
+	t.Setenv("LIVE_API_DEBUG", "")
+	if liveAPIDebugEnabledForTest() {
+		t.Fatal("debug enabled with empty LIVE_API_DEBUG, want disabled")
+	}
+
+	t.Setenv("LIVE_API_DEBUG", "1")
+	if !liveAPIDebugEnabledForTest() {
+		t.Fatal("debug disabled with LIVE_API_DEBUG=1, want enabled")
+	}
+}
+
+func TestLiveAPIDebugLinesForTestIncludeStatusAndRedactSecrets(t *testing.T) {
+	err := &AgentError{
+		Category:  ErrorCategoryModel,
+		Operation: "model.generate",
+		RequestID: "req-1",
+		Cause:     errors.New(`agent: anthropic messages returned status 401: {"error":"bad key secret-key","url":"https://user:pass@example.test/v1/messages?api_key=secret-key","token":"secret-token"}`),
+	}
+	config := ModelConfig{
+		BaseURL: "https://api.example.test/v1?api_key=secret-key",
+		APIKey:  "secret-key",
+	}
+
+	lines := liveAPIDebugLinesForTest(err, config)
+	if len(lines) != 1 {
+		t.Fatalf("debug lines = %#v, want one line", lines)
+	}
+	line := lines[0]
+	for _, want := range []string{"category=model", "operation=model.generate", "request=req-1", "status=401"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("debug line = %q, want %q", line, want)
+		}
+	}
+	for _, unsafe := range []string{"secret-key", "secret-token", "user:pass", "api_key=secret-key", `"token":"secret-token"`} {
+		if strings.Contains(line, unsafe) {
+			t.Fatalf("debug line = %q, want no unsafe text %q", line, unsafe)
+		}
+	}
+}
+
+func TestLiveAPIDebugLinesForTestBoundLongSummary(t *testing.T) {
+	err := errors.New("agent: provider returned status 500: " + strings.Repeat("x", 600))
+
+	lines := liveAPIDebugLinesForTest(err, ModelConfig{})
+	if len(lines) != 1 {
+		t.Fatalf("debug lines = %#v, want one line", lines)
+	}
+	if len(lines[0]) > 420 {
+		t.Fatalf("debug line length = %d, want bounded line", len(lines[0]))
 	}
 }
 

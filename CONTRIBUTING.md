@@ -44,6 +44,15 @@ show the provider response and safe observer metadata:
 go test -v -run '^TestLiveAPIModelRun$' .
 ```
 
+If the live provider call fails, enable safe diagnostics:
+
+```bash
+LIVE_API_DEBUG=1 go test -v -run '^TestLiveAPIModelRun$' .
+```
+
+Debug output includes only sanitized metadata such as status code and a redacted,
+bounded error summary.
+
 Run a specific test with:
 
 ```bash
