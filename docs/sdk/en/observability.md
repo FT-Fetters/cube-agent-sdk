@@ -137,6 +137,28 @@ behavior. `NoopObserver` remains the default; slog output is only emitted when
 the application installs `SlogObserver` with `WithObserver`, and metrics are
 only emitted when the application installs `MetricsObserver` with a sink.
 
+## OpenTelemetry Integration
+
+The core SDK does not import or require OpenTelemetry. Applications that use
+OpenTelemetry can bridge the sanitized `Observation` surface in their own
+module.
+
+The credential-free example under `examples/opentelemetry` is a separate Go
+module with its own OpenTelemetry dependencies:
+
+```bash
+go -C examples/opentelemetry test ./...
+go -C examples/opentelemetry run .
+```
+
+The example maps observations to OpenTelemetry spans, span events, and
+attributes for run/request/parent correlation, event type, agent ID, tool name
+and risk, duration, error category, token usage, streaming telemetry, tool
+lifecycle timing, tool schema hash, safe tool result metadata, and safe provider
+diagnostics. It does not map prompts, message content, tool arguments, tool
+result content, tool result metadata values, raw errors, credentials, full
+provider URLs, or MCP environment values.
+
 ## Sanitized Metadata
 
 Events and observations carry audit fields such as event type, agent ID,

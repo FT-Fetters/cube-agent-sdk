@@ -13,12 +13,20 @@ go run ./examples/streaming
 go run ./examples/mcp_stdio
 go run ./examples/session_state
 go run ./examples/approval_observer
+go -C examples/opentelemetry run .
 ```
 
-The test suite compiles the examples:
+The root test suite compiles the root-module examples:
 
 ```bash
 go test ./...
+```
+
+The OpenTelemetry example has its own module so the core SDK module stays free
+of OpenTelemetry dependencies:
+
+```bash
+go -C examples/opentelemetry test ./...
 ```
 
 ## Live API Example

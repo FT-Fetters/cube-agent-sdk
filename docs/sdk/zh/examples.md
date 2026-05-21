@@ -13,12 +13,20 @@ go run ./examples/streaming
 go run ./examples/mcp_stdio
 go run ./examples/session_state
 go run ./examples/approval_observer
+go -C examples/opentelemetry run .
 ```
 
-测试套件会编译这些示例：
+根测试套件会编译根 module 内的示例：
 
 ```bash
 go test ./...
+```
+
+OpenTelemetry 示例使用自己的 module，因此核心 SDK module 不会引入
+OpenTelemetry 依赖：
+
+```bash
+go -C examples/opentelemetry test ./...
 ```
 
 ## Live API 示例

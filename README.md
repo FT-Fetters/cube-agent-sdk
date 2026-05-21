@@ -91,6 +91,12 @@ services:
 - `go run ./examples/session_state`
 - `go run ./examples/approval_observer`
 
+The OpenTelemetry example is a separate Go module so tracing dependencies stay
+out of the core SDK module:
+
+- `go -C examples/opentelemetry test ./...`
+- `go -C examples/opentelemetry run .`
+
 `examples/live_api` is the only example intended for a real provider endpoint.
 It reads credentials from environment variables and is not required by CI:
 
@@ -589,6 +595,12 @@ observations. Positive tool lifecycle segments are recorded as
 `agent_tool_lifecycle_duration` with a low-cardinality `tool_phase` label and
 without `tool_name`. It does not add `ToolSchemaHash`, tool result metadata
 keys, or MCP result status as labels by default.
+For tracing, `examples/opentelemetry` shows an application-owned observer that
+maps sanitized `Observation` values to OpenTelemetry spans, span events, and
+attributes for run/request/parent correlation, event type, agent and tool
+metadata, duration, error category, token usage, stream timing, and tool timing.
+That example is a separate Go module; the core SDK module does not depend on
+OpenTelemetry, and applications own their exporters and tracing policy.
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.
 Nil child observers in a composed observer are ignored, and observer panics are

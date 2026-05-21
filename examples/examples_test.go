@@ -17,6 +17,7 @@ func TestTask9ExamplesAndReadmeCoverage(t *testing.T) {
 		"mcp_stdio",
 		"session_state",
 		"approval_observer",
+		"opentelemetry",
 	}
 	for _, example := range examples {
 		t.Run(example, func(t *testing.T) {

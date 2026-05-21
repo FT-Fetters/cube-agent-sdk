@@ -73,7 +73,7 @@
 - [x] **19. Split tool lifecycle timing.**
   Make validation, approval, and execution timing easy to distinguish in observations.
 
-- [ ] **20. Add OpenTelemetry integration example.**
+- [x] **20. Add OpenTelemetry integration example.**
   Document or provide an example mapping observations to spans, events, and attributes without making OpenTelemetry a core dependency.
 
 - [ ] **21. Define telemetry attribute naming conventions.**

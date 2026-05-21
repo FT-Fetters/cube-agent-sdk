@@ -131,6 +131,27 @@ nil 子 observer 会被忽略。Observer panic 会被 recover 并忽略，包括
 `WithObserver` 挂载 `SlogObserver` 时才会输出 slog 日志；只有应用挂载带 sink 的
 `MetricsObserver` 时才会输出指标。
 
+## OpenTelemetry 集成
+
+核心 SDK 不导入也不要求 OpenTelemetry。使用 OpenTelemetry 的应用可以在自己的
+module 中把脱敏的 `Observation` 表面桥接到 tracing 系统。
+
+`examples/opentelemetry` 下的无凭证示例是一个单独的 Go module，OpenTelemetry
+依赖只存在于该示例中：
+
+```bash
+go -C examples/opentelemetry test ./...
+go -C examples/opentelemetry run .
+```
+
+该示例把 observations 映射为 OpenTelemetry spans、span events 和 attributes，
+覆盖 run/request/parent 关联、event type、agent ID、tool name 和 risk、duration、
+error category、token usage、streaming telemetry、tool lifecycle timing、
+tool schema hash、安全的工具结果元数据，以及安全 provider diagnostics。它不会映射
+prompts、message content、tool arguments、tool result content、tool result
+metadata values、raw errors、credentials、完整 provider URL 或 MCP environment
+values。
+
 ## 脱敏元数据
 
 事件和 observations 携带 event type、agent ID、run ID、trace ID、span ID、
