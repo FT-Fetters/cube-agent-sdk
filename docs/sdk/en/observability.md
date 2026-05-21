@@ -21,6 +21,11 @@ bot, err := agent.New(cfg, model, agent.WithHook(hook))
 Hooks receive `Event` values for model calls, approvals, tools, compaction,
 skill activation, and subagent messages.
 
+Every `Run` and `RunStream` has a run ID shared by all lifecycle events emitted
+for that call. Pass `agent.WithRunID("trace-123")` to use an application trace
+ID; otherwise the SDK generates a non-empty ID from the agent ID and a local
+sequence.
+
 ## Observers
 
 ```go
@@ -42,8 +47,8 @@ change agent behavior.
 ## Sanitized Metadata
 
 Events and observations carry audit fields such as event type, agent ID,
-subagent ID, request ID, round, duration, estimated tokens, tool name, tool risk,
-approval result, skill name, and error category.
+run ID, subagent ID, request ID, round, duration, estimated tokens, tool name,
+tool risk, approval result, skill name, and error category.
 
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.

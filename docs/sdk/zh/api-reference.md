@@ -15,6 +15,7 @@
 - `Messages`
 - `Run`
 - `RunStream`
+- `WithRunID`
 
 ## Messages 和 Models
 

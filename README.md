@@ -484,10 +484,12 @@ bot, err := agent.New(cfg, model,
 ```
 
 Events and observations carry audit fields such as event type, agent ID,
-subagent ID, request ID, round, duration, estimated tokens, tool name, tool risk,
-approval result, skill name, and error category. Observations intentionally omit
-message content, tool arguments, tool results, raw errors, API keys, and MCP
-environment values.
+run ID, subagent ID, request ID, round, duration, estimated tokens, tool name,
+tool risk, approval result, skill name, and error category. Pass
+`agent.WithRunID("trace-123")` to correlate SDK telemetry with an application
+trace for one `Run` or `RunStream`; otherwise the SDK generates a run ID.
+Observations intentionally omit message content, tool arguments, tool results,
+raw errors, API keys, and MCP environment values.
 
 ## Error Handling
 

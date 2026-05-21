@@ -358,6 +358,7 @@ type AgentError struct {
 	Category   ErrorCategory
 	Operation  string
 	AgentID    string
+	RunID      string
 	RequestID  string
 	ToolName   string
 	SubagentID string
@@ -413,6 +414,7 @@ const (
 type Event struct {
 	Type            EventType
 	AgentID         string
+	RunID           string
 	SubagentID      string
 	ToolName        string
 	ToolRisk        ToolRisk
@@ -457,6 +459,7 @@ func (NoopObserver) Observe(context.Context, Observation) {}
 type Observation struct {
 	Type            EventType
 	AgentID         string
+	RunID           string
 	SubagentID      string
 	ToolName        string
 	ToolRisk        ToolRisk
@@ -476,6 +479,7 @@ func ObservationFromEvent(event Event) Observation {
 	return Observation{
 		Type:            event.Type,
 		AgentID:         event.AgentID,
+		RunID:           event.RunID,
 		SubagentID:      event.SubagentID,
 		ToolName:        event.ToolName,
 		ToolRisk:        event.ToolRisk,

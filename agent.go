@@ -39,6 +39,7 @@ type Agent struct {
 	observer    Observer
 	compactor   Compactor
 	tokenCount  TokenCounter
+	runSeq      uint64
 	requestSeq  uint64
 	subagents   map[string]*Agent
 	parentInbox map[string][]SubagentMessage
@@ -52,7 +53,10 @@ type RunOption func(*runConfig)
 
 type runConfig struct {
 	skillNames []string
+	runID      string
 }
+
+type runIDContextKey struct{}
 
 // New constructs an Agent with the provided model and optional capabilities.
 func New(config Config, model Model, options ...Option) (*Agent, error) {
@@ -220,6 +224,13 @@ func WithRunSkills(names ...string) RunOption {
 	}
 }
 
+// WithRunID sets a caller-provided correlation ID for a single Run or RunStream call.
+func WithRunID(id string) RunOption {
+	return func(config *runConfig) {
+		config.runID = strings.TrimSpace(id)
+	}
+}
+
 // AppendMessage adds an existing message to the managed context.
 func (a *Agent) AppendMessage(message Message) {
 	a.mu.Lock()
@@ -291,6 +302,7 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 			option(&config)
 		}
 	}
+	ctx = withRunID(ctx, a.runID(config))
 
 	a.mu.Lock()
 	a.messages = append(a.messages, Message{Role: RoleUser, Content: input})
@@ -365,6 +377,7 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 		if round >= maxRounds {
 			wrapped := agentError(ErrorCategoryTool, "tool.rounds", ErrMaxToolRoundsExceeded)
 			wrapped.AgentID = request.AgentID
+			wrapped.RunID = runIDFromContext(ctx)
 			wrapped.RequestID = requestID
 			wrapped.Round = roundNumber
 			return Message{}, wrapped
@@ -398,21 +411,23 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 // RunStream starts a streaming model call and returns events as the model emits
 // them. The final assistant message is written only after a done event arrives.
 func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOption) (<-chan StreamEvent, error) {
-	streamModel, ok := a.model.(StreamModel)
-	if !ok {
-		cause := fmt.Errorf("%w: %T", ErrStreamingUnsupported, a.model)
-		wrapped := agentError(ErrorCategoryStreaming, "stream.unsupported", cause)
-		wrapped.AgentID = a.agentID()
-		wrapped.RequestID = a.nextRequestID()
-		wrapped.Round = 1
-		return nil, wrapped
-	}
-
 	var config runConfig
 	for _, option := range options {
 		if option != nil {
 			option(&config)
 		}
+	}
+	ctx = withRunID(ctx, a.runID(config))
+
+	streamModel, ok := a.model.(StreamModel)
+	if !ok {
+		cause := fmt.Errorf("%w: %T", ErrStreamingUnsupported, a.model)
+		wrapped := agentError(ErrorCategoryStreaming, "stream.unsupported", cause)
+		wrapped.AgentID = a.agentID()
+		wrapped.RunID = runIDFromContext(ctx)
+		wrapped.RequestID = a.nextRequestID()
+		wrapped.Round = 1
+		return nil, wrapped
 	}
 
 	a.mu.Lock()
@@ -574,10 +589,14 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 
 func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, requestID string, round int, estimatedTokens int, started time.Time) {
 	err = streamAgentError(err)
+	runID := runIDFromContext(ctx)
 	var agentErr *AgentError
 	if errors.As(err, &agentErr) {
 		if agentErr.AgentID == "" {
 			agentErr.AgentID = agentID
+		}
+		if agentErr.RunID == "" {
+			agentErr.RunID = runID
 		}
 		if agentErr.RequestID == "" {
 			agentErr.RequestID = requestID
@@ -808,6 +827,39 @@ func (a *Agent) nextRequestID() string {
 	return fmt.Sprintf("%s-request-%d", a.agentID(), sequence)
 }
 
+func (a *Agent) runID(config runConfig) string {
+	if config.runID != "" {
+		return config.runID
+	}
+	sequence := atomic.AddUint64(&a.runSeq, 1)
+	return fmt.Sprintf("%s-run-%d", a.agentID(), sequence)
+}
+
+func withRunID(ctx context.Context, runID string) context.Context {
+	if runID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, runIDContextKey{}, runID)
+}
+
+func runIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	runID, _ := ctx.Value(runIDContextKey{}).(string)
+	return runID
+}
+
+func setAgentErrorRunID(err error, runID string) {
+	if err == nil || runID == "" {
+		return
+	}
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) && agentErr.RunID == "" {
+		agentErr.RunID = runID
+	}
+}
+
 func (a *Agent) estimatedTokens(messages []Message) int {
 	a.mu.Lock()
 	counter := a.tokenCount
@@ -821,9 +873,13 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 	observer := a.observer
 	hooks := append([]Hook(nil), a.hooks...)
 	a.mu.Unlock()
+	if event.RunID == "" {
+		event.RunID = runIDFromContext(ctx)
+	}
 	if event.Error != nil && event.ErrorCategory == "" {
 		event.ErrorCategory = classifyError(event.Error)
 	}
+	setAgentErrorRunID(event.Error, event.RunID)
 
 	notifyObserver(ctx, observer, event)
 
@@ -835,6 +891,7 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 			}
 			wrapped := agentError(ErrorCategoryHook, "hook."+string(event.Type), cause)
 			wrapped.AgentID = event.AgentID
+			wrapped.RunID = event.RunID
 			wrapped.RequestID = event.RequestID
 			wrapped.ToolName = event.ToolName
 			wrapped.SubagentID = event.SubagentID

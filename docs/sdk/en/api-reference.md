@@ -15,6 +15,7 @@ method-level details while keeping this page as a navigation aid.
 - `Messages`
 - `Run`
 - `RunStream`
+- `WithRunID`
 
 ## Messages and Models
 

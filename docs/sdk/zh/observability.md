@@ -20,6 +20,10 @@ bot, err := agent.New(cfg, model, agent.WithHook(hook))
 
 Hooks 接收模型调用、审批、工具、压缩、skill 激活和 subagent 消息对应的 `Event`。
 
+每次 `Run` 和 `RunStream` 都有一个 run ID，同一次调用发出的所有生命周期事件
+共享它。可以传入 `agent.WithRunID("trace-123")` 使用应用自己的 trace ID；
+否则 SDK 会基于 agent ID 和本地序列生成非空 ID。
+
 ## Observers
 
 ```go
@@ -39,9 +43,9 @@ Observer panic 会被 recover 并忽略。遥测是 best-effort，不能改变 a
 
 ## 脱敏元数据
 
-事件和 observations 携带 event type、agent ID、subagent ID、request ID、round、
-duration、estimated tokens、tool name、tool risk、approval result、skill name 和
-error category 等审计字段。
+事件和 observations 携带 event type、agent ID、run ID、subagent ID、request ID、
+round、duration、estimated tokens、tool name、tool risk、approval result、skill
+name 和 error category 等审计字段。
 
 Observations 有意省略消息内容、工具参数、工具结果、原始错误、API keys 和 MCP
 环境变量。

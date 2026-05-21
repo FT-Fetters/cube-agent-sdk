@@ -111,6 +111,126 @@ func TestAgentLifecycleEventsCarryAuditFields(t *testing.T) {
 	}
 }
 
+func TestAgentRunEventsShareCustomRunID(t *testing.T) {
+	ctx := context.Background()
+	model := &recordingModel{responses: []ModelResponse{
+		{ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "hello"}}}},
+		{Message: Message{Role: RoleAssistant, Content: "done"}},
+	}}
+	childModel := &recordingModel{responses: []ModelResponse{
+		{Message: Message{Role: RoleAssistant, Content: "child done"}},
+	}}
+	compactor := &recordingCompactor{
+		result: []Message{{Role: RoleSystem, Content: "summary"}},
+	}
+	var events []Event
+	var bot *Agent
+	var spawned bool
+	var err error
+	bot, err = New(Config{
+		ID:           "run-agent",
+		SystemPrompt: "base",
+		Compact: CompactConfig{
+			MaxTokens: 2,
+			Threshold: 1,
+		},
+	}, model,
+		WithSkills(Skill{Name: "planner", Instructions: "Plan carefully."}),
+		WithCompactor(compactor),
+		WithTokenCounter(TokenCounterFunc(func(Message) int { return 1 })),
+		WithTools(ToolFunc{
+			ToolName:        "echo",
+			ToolDescription: "Echo text",
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				if !spawned {
+					spawned = true
+					if _, err := bot.SpawnSubagent(ctx, SubagentOptions{
+						ID:    "worker-1",
+						Model: childModel,
+					}); err != nil {
+						return ToolResult{}, err
+					}
+					if _, err := bot.SendMessageToSubagent(ctx, "worker-1", "start"); err != nil {
+						return ToolResult{}, err
+					}
+				}
+				return ToolResult{CallID: call.ID, Name: call.Name, Content: call.Arguments["text"].(string)}, nil
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.AppendMessage(Message{Role: RoleUser, Content: "before"})
+
+	if _, err := bot.Run(ctx, "use echo", WithRunID("custom-run"), WithRunSkills("planner")); err != nil {
+		t.Fatal(err)
+	}
+
+	required := []EventType{
+		EventSkillActivated,
+		EventBeforeCompact,
+		EventAfterCompact,
+		EventBeforeModel,
+		EventAfterModel,
+		EventBeforeApproval,
+		EventAfterApproval,
+		EventBeforeTool,
+		EventAfterTool,
+		EventSubagentMessage,
+	}
+	for _, eventType := range required {
+		if event := firstEventOfType(t, events, eventType); event.RunID != "custom-run" {
+			t.Fatalf("%s run ID = %q, want custom-run", eventType, event.RunID)
+		}
+	}
+	for _, event := range events {
+		if event.RunID != "custom-run" {
+			t.Fatalf("event = %#v, want every event to share custom run ID", event)
+		}
+	}
+}
+
+func TestAgentGeneratesStableRunIDsPerRun(t *testing.T) {
+	ctx := context.Background()
+	model := &recordingModel{responses: []ModelResponse{
+		{Message: Message{Role: RoleAssistant, Content: "first"}},
+		{Message: Message{Role: RoleAssistant, Content: "second"}},
+	}}
+	var events []Event
+	bot, err := New(Config{ID: "generated-agent", SystemPrompt: "base"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := bot.Run(ctx, "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bot.Run(ctx, "second"); err != nil {
+		t.Fatal(err)
+	}
+
+	var runIDs []string
+	for _, event := range events {
+		if event.Type == EventBeforeModel {
+			runIDs = append(runIDs, event.RunID)
+		}
+	}
+	want := []string{"generated-agent-run-1", "generated-agent-run-2"}
+	if !reflect.DeepEqual(runIDs, want) {
+		t.Fatalf("generated run IDs = %#v, want %#v", runIDs, want)
+	}
+}
+
 func TestAgentToolPreflightFailuresEmitAfterToolAuditEvent(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -229,7 +349,7 @@ func TestAgentModelErrorIsStructuredAndEmittedWithCategory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = bot.Run(ctx, "hello")
+	_, err = bot.Run(ctx, "hello", WithRunID("model-run"))
 	if !errors.Is(err, modelErr) {
 		t.Fatalf("err = %v, want wrapped model error", err)
 	}
@@ -240,8 +360,14 @@ func TestAgentModelErrorIsStructuredAndEmittedWithCategory(t *testing.T) {
 	if agentErr.Category != ErrorCategoryModel || agentErr.Operation != "model.generate" {
 		t.Fatalf("model error category/operation = %q/%q, want model/model.generate", agentErr.Category, agentErr.Operation)
 	}
+	if agentErr.RunID != "model-run" {
+		t.Fatalf("model error run ID = %q, want model-run", agentErr.RunID)
+	}
 
 	afterModel := firstEventOfType(t, events, EventAfterModel)
+	if afterModel.RunID != "model-run" {
+		t.Fatalf("after model run ID = %q, want model-run", afterModel.RunID)
+	}
 	if afterModel.RequestID == "" || afterModel.Round != 1 || afterModel.Duration <= 0 {
 		t.Fatalf("after model audit fields = %#v, want request ID, round, and duration", afterModel)
 	}
@@ -884,6 +1010,45 @@ func TestAgentRunStreamEmitsErrorEventAndSkipsIncompleteAssistantMessage(t *test
 	wantMessages := []Message{{Role: RoleUser, Content: "start"}}
 	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
 		t.Fatalf("agent messages = %#v, want only user message after interrupted stream", got)
+	}
+}
+
+func TestAgentRunStreamCarriesRunIDInObservationsAndErrors(t *testing.T) {
+	ctx := context.Background()
+	streamErr := errors.New("stream interrupted")
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventError, Error: streamErr},
+	}}
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-agent"}, model, WithObserver(recorder))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := agent.RunStream(ctx, "start", WithRunID("stream-run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+
+	if len(got) != 1 || got[0].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want one error event", got)
+	}
+	var agentErr *AgentError
+	if !errors.As(got[0].Error, &agentErr) {
+		t.Fatalf("stream error = %T, want *AgentError", got[0].Error)
+	}
+	if agentErr.RunID != "stream-run" {
+		t.Fatalf("stream error run ID = %q, want stream-run", agentErr.RunID)
+	}
+
+	beforeModel := firstObservationOfType(t, recorder.Observations(), EventBeforeModel)
+	afterModel := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	if beforeModel.RunID != "stream-run" || afterModel.RunID != "stream-run" {
+		t.Fatalf("stream observation run IDs = %q/%q, want stream-run", beforeModel.RunID, afterModel.RunID)
+	}
+	if beforeModel.RequestID == "" || beforeModel.RequestID != afterModel.RequestID {
+		t.Fatalf("stream observation request IDs = %q/%q, want matching non-empty IDs", beforeModel.RequestID, afterModel.RequestID)
 	}
 }
 
