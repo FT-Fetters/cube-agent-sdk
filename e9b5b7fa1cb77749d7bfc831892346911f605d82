@@ -1,0 +1,38 @@
+docs/sdk/zh/observability.md
+  c01c43b2f5a1d0dc 70-89,92-93,114-120
+docs/sdk/en/observability.md
+  c01c43b2f5a1d0dc 72-92,95-97,122-129
+docs/sdk/zh/api-reference.md
+  c01c43b2f5a1d0dc 142-149
+OBSERVABILITY_OPTIMIZATION_TODO.md
+  c01c43b2f5a1d0dc 49
+metrics_observer.go
+  c01c43b2f5a1d0dc 1-116
+README.md
+  c01c43b2f5a1d0dc 499-511,522-524
+docs/sdk/en/api-reference.md
+  c01c43b2f5a1d0dc 142-149
+metrics_observer_test.go
+  c01c43b2f5a1d0dc 1-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "e9b5b7fa1cb77749d7bfc831892346911f605d82",
+  "prompts": {
+    "c01c43b2f5a1d0dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4b2c-9a4a-74a1-8899-9a458b908769",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 375,
+      "total_deletions": 3,
+      "accepted_lines": 375,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/af5aac8ea7e9dd1411ba6e80e7db62fd6942c1c7126b4196a0cce15b5f997c44"
+    }
+  }
+}
