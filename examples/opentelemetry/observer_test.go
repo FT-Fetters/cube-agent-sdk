@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -141,6 +143,27 @@ func TestOTelObserverMapsSafeObservationFields(t *testing.T) {
 	)
 }
 
+func TestOTelObserverRedactionRegressionOmitsHighRiskPayloads(t *testing.T) {
+	sentinels := newOTelRedactionSentinels()
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	observer := NewOTelObserver(provider.Tracer("test"))
+
+	runOTelRedactionSuccess(t, observer, sentinels)
+	runOTelRedactionToolError(t, observer, sentinels)
+	runOTelRedactionModelError(t, observer, sentinels)
+	runOTelRedactionProviderError(t, observer, sentinels)
+
+	spans := recorder.Ended()
+	if len(spans) == 0 {
+		t.Fatal("redaction regression emitted no spans")
+	}
+	for _, span := range spans {
+		assertSpanDoesNotContain(t, span, sentinels.unsafeValues()...)
+	}
+	assertAnySpanStringAttr(t, spans, agent.TelemetryAttrProviderEndpointHost, "api.example.test")
+}
+
 func TestOTelObserverUsesRequestParentCorrelation(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
@@ -190,6 +213,187 @@ func TestOTelObserverUsesRequestParentCorrelation(t *testing.T) {
 	if toolSpan.Parent().SpanID() != modelSpan.SpanContext().SpanID() {
 		t.Fatalf("tool parent span = %s, want model span %s", toolSpan.Parent().SpanID(), modelSpan.SpanContext().SpanID())
 	}
+}
+
+type otelRedactionSentinels struct {
+	systemPrompt              string
+	userMessage               string
+	assistantContent          string
+	toolArguments             string
+	toolResultContent         string
+	toolResultMetadataValue   string
+	mcpStructuredContentValue string
+	rawToolErrorText          string
+	rawModelErrorText         string
+	rawProviderErrorText      string
+	apiKey                    string
+	authorization             string
+	cookie                    string
+	fullProviderURL           string
+	mcpEnvValue               string
+}
+
+func newOTelRedactionSentinels() otelRedactionSentinels {
+	return otelRedactionSentinels{
+		systemPrompt:              "otel-redaction-system-prompt",
+		userMessage:               "otel-redaction-user-message",
+		assistantContent:          "otel-redaction-assistant-content",
+		toolArguments:             "otel-redaction-tool-arguments",
+		toolResultContent:         "otel-redaction-tool-result-content",
+		toolResultMetadataValue:   "otel-redaction-tool-result-metadata-value",
+		mcpStructuredContentValue: "otel-redaction-mcp-structured-content-value",
+		rawToolErrorText:          "otel-redaction-raw-tool-error",
+		rawModelErrorText:         "otel-redaction-raw-model-error",
+		rawProviderErrorText:      "otel-redaction-raw-provider-error",
+		apiKey:                    "otel-redaction-api-key",
+		authorization:             "Bearer otel-redaction-authorization",
+		cookie:                    "session=otel-redaction-cookie",
+		fullProviderURL:           "https://user:password@api.example.test/v1/responses?api_key=otel-redaction-api-key#otel-redaction-fragment",
+		mcpEnvValue:               "otel-redaction-mcp-env-value",
+	}
+}
+
+func (s otelRedactionSentinels) unsafeValues() []string {
+	return []string{
+		s.systemPrompt,
+		s.userMessage,
+		s.assistantContent,
+		s.toolArguments,
+		s.toolResultContent,
+		s.toolResultMetadataValue,
+		s.mcpStructuredContentValue,
+		s.rawToolErrorText,
+		s.rawModelErrorText,
+		s.rawProviderErrorText,
+		s.apiKey,
+		s.authorization,
+		s.cookie,
+		s.fullProviderURL,
+		s.mcpEnvValue,
+	}
+}
+
+func runOTelRedactionSuccess(t *testing.T, observer agent.Observer, sentinels otelRedactionSentinels) {
+	t.Helper()
+	model := &localModel{responses: []agent.ModelResponse{
+		{ToolCalls: []agent.ToolCall{otelRedactionToolCall(sentinels)}},
+		{Message: agent.Message{Role: agent.RoleAssistant, Content: sentinels.assistantContent}},
+	}}
+	bot, err := agent.New(agent.Config{ID: "otel-redaction-agent", SystemPrompt: sentinels.systemPrompt}, model,
+		agent.WithObserver(observer),
+		agent.WithTools(otelRedactionTool(sentinels, nil)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bot.Run(context.Background(), sentinels.userMessage, agent.WithRunID("otel-redaction-run")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runOTelRedactionToolError(t *testing.T, observer agent.Observer, sentinels otelRedactionSentinels) {
+	t.Helper()
+	model := &localModel{responses: []agent.ModelResponse{
+		{ToolCalls: []agent.ToolCall{otelRedactionToolCall(sentinels)}},
+	}}
+	bot, err := agent.New(agent.Config{ID: "otel-redaction-tool-error-agent", SystemPrompt: sentinels.systemPrompt}, model,
+		agent.WithObserver(observer),
+		agent.WithTools(otelRedactionTool(sentinels, errors.New(sentinels.rawToolErrorText))),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bot.Run(context.Background(), sentinels.userMessage, agent.WithRunID("otel-redaction-tool-error-run")); err == nil {
+		t.Fatal("Run error = nil, want tool error")
+	}
+}
+
+func runOTelRedactionModelError(t *testing.T, observer agent.Observer, sentinels otelRedactionSentinels) {
+	t.Helper()
+	bot, err := agent.New(agent.Config{ID: "otel-redaction-model-error-agent", SystemPrompt: sentinels.systemPrompt},
+		failingOTelModel{err: errors.New(sentinels.rawModelErrorText)},
+		agent.WithObserver(observer),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bot.Run(context.Background(), sentinels.userMessage, agent.WithRunID("otel-redaction-model-error-run")); err == nil {
+		t.Fatal("Run error = nil, want model error")
+	}
+}
+
+func runOTelRedactionProviderError(t *testing.T, observer agent.Observer, sentinels otelRedactionSentinels) {
+	t.Helper()
+	modelErr := agent.NewProviderError("provider rejected request", agent.ProviderDiagnostics{
+		Provider:     "custom-provider",
+		HTTPStatus:   http.StatusUnauthorized,
+		EndpointHost: sentinels.fullProviderURL,
+		RequestID:    "provider-request-redaction",
+	}, errors.New(sentinels.rawProviderErrorText))
+	bot, err := agent.New(agent.Config{ID: "otel-redaction-provider-error-agent", SystemPrompt: sentinels.systemPrompt},
+		failingOTelModel{err: modelErr},
+		agent.WithObserver(observer),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bot.Run(context.Background(), sentinels.userMessage, agent.WithRunID("otel-redaction-provider-error-run")); err == nil {
+		t.Fatal("Run error = nil, want provider error")
+	}
+}
+
+func otelRedactionToolCall(sentinels otelRedactionSentinels) agent.ToolCall {
+	return agent.ToolCall{
+		ID:   "otel-redaction-call",
+		Name: "otel_redaction_lookup",
+		Arguments: map[string]any{
+			"query":         sentinels.toolArguments,
+			"api_key":       sentinels.apiKey,
+			"authorization": sentinels.authorization,
+			"cookie":        sentinels.cookie,
+			"url":           sentinels.fullProviderURL,
+			"mcp_env":       sentinels.mcpEnvValue,
+		},
+	}
+}
+
+func otelRedactionTool(sentinels otelRedactionSentinels, err error) agent.ToolFunc {
+	return agent.ToolFunc{
+		ToolName:        "otel_redaction_lookup",
+		ToolDescription: "Lookup data for OpenTelemetry redaction regression testing",
+		ToolRisk:        agent.ToolRiskRead,
+		Fn: func(ctx context.Context, call agent.ToolCall) (agent.ToolResult, error) {
+			return agent.ToolResult{
+				CallID:  call.ID,
+				Name:    call.Name,
+				Content: sentinels.toolResultContent,
+				Metadata: map[string]any{
+					"safeMetadataKey":      sentinels.toolResultMetadataValue,
+					"mcpStructuredContent": map[string]any{"safeKey": sentinels.mcpStructuredContentValue},
+					"mcpIsError":           false,
+				},
+			}, err
+		},
+	}
+}
+
+type failingOTelModel struct {
+	err error
+}
+
+func (m failingOTelModel) Generate(context.Context, agent.ModelRequest) (agent.ModelResponse, error) {
+	return agent.ModelResponse{}, m.err
+}
+
+func assertAnySpanStringAttr(t *testing.T, spans []sdktrace.ReadOnlySpan, key string, want string) {
+	t.Helper()
+	for _, span := range spans {
+		got, ok := spanAttr(span, key)
+		if ok && got.Value.AsString() == want {
+			return
+		}
+	}
+	t.Fatalf("no span attribute %s = %q found", key, want)
 }
 
 func endedSpanByRequestID(t *testing.T, spans []sdktrace.ReadOnlySpan, requestID string) sdktrace.ReadOnlySpan {

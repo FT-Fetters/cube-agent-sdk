@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"reflect"
 	"sort"
 	"strings"
@@ -282,7 +283,7 @@ func ModelErrorSubcategoryFromError(err error) (ModelErrorSubcategory, bool) {
 
 func normalizeProviderDiagnostics(diagnostics ProviderDiagnostics) ProviderDiagnostics {
 	diagnostics.Provider = strings.TrimSpace(diagnostics.Provider)
-	diagnostics.EndpointHost = strings.TrimSpace(diagnostics.EndpointHost)
+	diagnostics.EndpointHost = normalizeProviderEndpointHost(diagnostics.EndpointHost)
 	diagnostics.RequestID = strings.TrimSpace(diagnostics.RequestID)
 	diagnostics.RetryAfter = strings.TrimSpace(diagnostics.RetryAfter)
 	diagnostics.RateLimitLimit = strings.TrimSpace(diagnostics.RateLimitLimit)
@@ -292,6 +293,30 @@ func normalizeProviderDiagnostics(diagnostics ProviderDiagnostics) ProviderDiagn
 		diagnostics.HTTPStatus = 0
 	}
 	return diagnostics
+}
+
+func normalizeProviderEndpointHost(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(endpoint); err == nil && parsed.Host != "" {
+		return stripProviderEndpointUserInfo(parsed.Host)
+	}
+	host := endpoint
+	for _, separator := range []string{"/", "?", "#"} {
+		if index := strings.Index(host, separator); index >= 0 {
+			host = host[:index]
+		}
+	}
+	return stripProviderEndpointUserInfo(strings.TrimSpace(host))
+}
+
+func stripProviderEndpointUserInfo(host string) string {
+	if index := strings.LastIndex(host, "@"); index >= 0 {
+		return host[index+1:]
+	}
+	return host
 }
 
 func normalizeModelErrorSubcategory(subcategory ModelErrorSubcategory) ModelErrorSubcategory {
@@ -904,7 +929,7 @@ func ObservationFromEvent(event Event) Observation {
 		ToolTiming:            event.ToolTiming,
 		TokenUsage:            event.TokenUsage,
 		StreamTelemetry:       event.StreamTelemetry,
-		ProviderDiagnostics:   event.ProviderDiagnostics,
+		ProviderDiagnostics:   normalizeProviderDiagnostics(event.ProviderDiagnostics),
 		ToolResultMetadata:    toolResultMetadata,
 		ModelErrorSubcategory: event.ModelErrorSubcategory,
 		Approved:              event.Approved,

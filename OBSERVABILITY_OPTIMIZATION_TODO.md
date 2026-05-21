@@ -85,7 +85,7 @@
 - [x] **23. Add production observability documentation.**
   Add production guidance for logs, metrics, tracing, safe redaction, and recommended dashboards or alerts.
 
-- [ ] **24. Add redaction regression coverage.**
+- [x] **24. Add redaction regression coverage.**
   Add tests covering provider errors, response headers, MCP environment values, tool arguments, stream errors, and raw errors to prevent telemetry leaks.
 
 - [ ] **25. Add observation contract tests.**

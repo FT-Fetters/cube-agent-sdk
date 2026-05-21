@@ -234,12 +234,23 @@ func runFakeMCPStdioServer(mode string) {
 				continue
 			}
 			text, _ := params.Arguments["text"].(string)
-			fakeMCPWriteResult(request.ID, map[string]any{
+			result := map[string]any{
 				"content": []map[string]any{
 					{"type": "text", "text": "mcp echoed " + text},
 				},
 				"isError": false,
-			})
+			}
+			structuredContent := map[string]any{}
+			if value := os.Getenv("CUBE_AGENT_FAKE_MCP_STRUCTURED_SECRET"); value != "" {
+				structuredContent["structured_secret"] = value
+			}
+			if value := os.Getenv("CUBE_AGENT_MCP_ENV_SECRET"); value != "" {
+				structuredContent["env_secret"] = value
+			}
+			if len(structuredContent) > 0 {
+				result["structuredContent"] = structuredContent
+			}
+			fakeMCPWriteResult(request.ID, result)
 		default:
 			if len(request.ID) > 0 {
 				fakeMCPWriteError(request.ID, -32601, fmt.Sprintf("unknown method %s", request.Method))
