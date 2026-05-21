@@ -78,6 +78,11 @@ Complete SDK documentation is maintained under `docs/sdk`:
 - [English](docs/sdk/en/README.md)
 - [中文](docs/sdk/zh/README.md)
 
+Production observability:
+
+- [English](docs/sdk/en/production.md#production-observability-checklist)
+- [中文](docs/sdk/zh/production.md#生产观测清单)
+
 ## Examples
 
 Local examples are under `examples/` and avoid real credentials or external
@@ -754,6 +759,10 @@ Recommended production path:
 8. Treat hooks as enforcement points and observers as best-effort telemetry.
 9. Test model adapters with fake HTTP servers and MCP integrations with fake
    stdio servers before using real providers.
+
+For the production observability rollout checklist, including logs, metrics,
+traces, sampling, provider diagnostics, stream timing, tool timing, SLOs, and
+privacy red lines, see the English and Chinese production guides linked above.
 
 Local verification:
 

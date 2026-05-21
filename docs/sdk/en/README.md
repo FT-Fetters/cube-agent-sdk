@@ -25,7 +25,8 @@ Applications connect those pieces through Go interfaces and options.
 - [Compaction](./compaction.md): context threshold checks and summarization.
 - [Subagents](./subagents.md): parent-controlled child agents.
 - [Examples](./examples.md): local examples and the optional live API example.
-- [Production](./production.md): integration checklist for real deployments.
+- [Production](./production.md): integration and production observability
+  checklist for real deployments.
 - [API Reference](./api-reference.md): exported SDK surface grouped by area.
 
 ## What the SDK Provides

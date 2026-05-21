@@ -82,7 +82,7 @@
 - [x] **22. Allow custom request ID generation.**
   Let applications override the default request ID generator for deterministic tests and cross-service correlation.
 
-- [ ] **23. Add production observability documentation.**
+- [x] **23. Add production observability documentation.**
   Add production guidance for logs, metrics, tracing, safe redaction, and recommended dashboards or alerts.
 
 - [ ] **24. Add redaction regression coverage.**
