@@ -931,7 +931,7 @@ func ObservationFromEvent(event Event) Observation {
 		StreamTelemetry:       event.StreamTelemetry,
 		ProviderDiagnostics:   normalizeProviderDiagnostics(event.ProviderDiagnostics),
 		ToolResultMetadata:    toolResultMetadata,
-		ModelErrorSubcategory: event.ModelErrorSubcategory,
+		ModelErrorSubcategory: normalizeModelErrorSubcategory(event.ModelErrorSubcategory),
 		Approved:              event.Approved,
 		ApprovalReason:        event.ApprovalReason,
 		ErrorCategory:         event.ErrorCategory,

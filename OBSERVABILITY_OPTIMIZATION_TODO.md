@@ -88,7 +88,7 @@
 - [x] **24. Add redaction regression coverage.**
   Add tests covering provider errors, response headers, MCP environment values, tool arguments, stream errors, and raw errors to prevent telemetry leaks.
 
-- [ ] **25. Add observation contract tests.**
+- [x] **25. Add observation contract tests.**
   Add tests that lock down event ordering and field semantics so future changes do not break integrations.
 
 ## Implementation Log
