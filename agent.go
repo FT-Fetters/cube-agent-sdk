@@ -438,6 +438,7 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		}
 	}
 	ctx = withRunID(ctx, a.runID(config))
+	started := time.Now()
 
 	streamModel, ok := a.model.(StreamModel)
 	if !ok {
@@ -448,6 +449,26 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
 		wrapped.RequestID = a.nextRequestID()
 		wrapped.Round = 1
+		estimatedTokens := a.estimatedInputTokens(input)
+		duration := eventDurationSince(started)
+		// Unsupported streaming returns before normal model hooks can run, so
+		// record the failure through observer-only telemetry without mutating context.
+		a.observeEvent(ctx, Event{
+			Type:            EventAfterModel,
+			RequestID:       wrapped.RequestID,
+			Round:           1,
+			Duration:        duration,
+			EstimatedTokens: estimatedTokens,
+			Error:           wrapped,
+		})
+		a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
+			Type:            EventStreamError,
+			RequestID:       wrapped.RequestID,
+			Round:           1,
+			Duration:        duration,
+			EstimatedTokens: estimatedTokens,
+			Error:           wrapped,
+		})
 		return nil, wrapped
 	}
 
@@ -479,7 +500,6 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 	}); err != nil {
 		return nil, err
 	}
-	started := time.Now()
 	a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
 		Type:            EventStreamStart,
 		RequestID:       requestID,
@@ -500,7 +520,7 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 			EstimatedTokens: estimatedTokens,
 			Error:           wrapped,
 		}
-		if emitErr := a.emit(ctx, afterEvent); emitErr != nil {
+		if emitErr := a.emitStreamAfterModel(ctx, afterEvent); emitErr != nil {
 			a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
 				Type:            EventStreamError,
 				RequestID:       requestID,
@@ -535,7 +555,7 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 			EstimatedTokens: estimatedTokens,
 			Error:           wrapped,
 		}
-		if emitErr := a.emit(ctx, afterEvent); emitErr != nil {
+		if emitErr := a.emitStreamAfterModel(ctx, afterEvent); emitErr != nil {
 			a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
 				Type:            EventStreamError,
 				RequestID:       requestID,
@@ -612,7 +632,7 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			event.Message = cloneMessage(message)
 
 			duration := eventDurationSince(started)
-			if err := a.emit(ctx, Event{
+			if err := a.emitStreamAfterModel(ctx, Event{
 				Type:            EventAfterModel,
 				RequestID:       requestID,
 				Round:           round,
@@ -648,7 +668,7 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			wrapped.Round = round
 			event.Error = wrapped
 			duration := eventDurationSince(started)
-			if emitErr := a.emit(ctx, Event{
+			if emitErr := a.emitStreamAfterModel(ctx, Event{
 				Type:            EventAfterModel,
 				RequestID:       requestID,
 				Round:           round,
@@ -720,7 +740,7 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		return
 	}
 	duration := eventDurationSince(started)
-	if emitErr := a.emit(ctx, Event{
+	afterEvent := Event{
 		Type:            EventAfterModel,
 		RequestID:       requestID,
 		Round:           round,
@@ -728,7 +748,8 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		EstimatedTokens: estimatedTokens,
 		StreamTelemetry: telemetry.telemetry(duration),
 		Error:           err,
-	}); emitErr != nil {
+	}
+	if emitErr := a.emitStreamAfterModel(ctx, afterEvent); emitErr != nil {
 		err = emitErr
 	}
 	a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
@@ -1069,6 +1090,15 @@ func (a *Agent) estimatedTokens(messages []Message) int {
 	return estimateMessagesTokens(counter, messages)
 }
 
+func (a *Agent) estimatedInputTokens(input string) int {
+	a.mu.Lock()
+	messages := cloneMessages(a.messages)
+	counter := a.tokenCount
+	a.mu.Unlock()
+	messages = append(messages, Message{Role: RoleUser, Content: input})
+	return estimateMessagesTokens(counter, messages)
+}
+
 func (a *Agent) emit(ctx context.Context, event Event) error {
 	a.mu.Lock()
 	event.AgentID = a.id
@@ -1100,18 +1130,36 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 	return nil
 }
 
-func (a *Agent) observeStreamLifecycle(ctx context.Context, enabled bool, event Event) {
-	if !enabled {
-		return
+func (a *Agent) emitStreamAfterModel(ctx context.Context, event Event) error {
+	if err := a.emit(ctx, event); err != nil {
+		// Hook failures cannot be emitted through hooks again, but they should
+		// still produce the same failed after-model observation shape.
+		event.Error = err
+		event.ErrorCategory = ""
+		event.ProviderDiagnostics = ProviderDiagnostics{}
+		event.ModelErrorSubcategory = ""
+		a.observeEvent(ctx, event)
+		return err
 	}
-	// Stream lifecycle telemetry is observer-only so opt-in observations cannot
-	// add hook rejection paths to streaming delivery.
+	return nil
+}
+
+func (a *Agent) observeEvent(ctx context.Context, event Event) {
 	a.mu.Lock()
 	event.AgentID = a.id
 	observer := a.observer
 	a.mu.Unlock()
 	prepareEventForTelemetry(ctx, &event)
 	notifyObserver(ctx, observer, event)
+}
+
+func (a *Agent) observeStreamLifecycle(ctx context.Context, enabled bool, event Event) {
+	if !enabled {
+		return
+	}
+	// Stream lifecycle telemetry is observer-only so opt-in observations cannot
+	// add hook rejection paths to streaming delivery.
+	a.observeEvent(ctx, event)
 }
 
 func prepareEventForTelemetry(ctx context.Context, event *Event) TraceContext {

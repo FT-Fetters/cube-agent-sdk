@@ -61,7 +61,7 @@
 - [x] **15. Add optional streaming lifecycle observations.**
   Emit optional stream start, first delta, done, and error observations without emitting every delta by default.
 
-- [ ] **16. Align streaming errors with non-streaming observability.**
+- [x] **16. Align streaming errors with non-streaming observability.**
   Ensure streaming errors consistently include run correlation, request IDs, duration, usage where available, and error category.
 
 - [ ] **17. Add tool schema version or hash telemetry.**

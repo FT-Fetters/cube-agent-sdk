@@ -1291,6 +1291,72 @@ func TestAgentRunStreamReturnsClearErrorWhenModelDoesNotSupportStreaming(t *test
 	}
 }
 
+func TestAgentRunStreamUnsupportedModelEmitsStreamErrorObservationMetadata(t *testing.T) {
+	trace := TraceContext{
+		TraceID:    "trace-stream-unsupported",
+		SpanID:     "span-stream-unsupported",
+		TraceState: "vendor=unsupported",
+	}
+	ctx := WithTraceContext(context.Background(), trace)
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-agent"}, &recordingModel{},
+		WithObserver(recorder),
+		WithTokenCounter(TokenCounterFunc(func(Message) int { return 3 })),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := agent.RunStream(ctx, "hello", WithRunID("stream-run"), WithStreamObservations())
+	if !errors.Is(err, ErrStreamingUnsupported) {
+		t.Fatalf("RunStream error = %v, want ErrStreamingUnsupported", err)
+	}
+	if events != nil {
+		t.Fatalf("RunStream events = %#v, want nil channel on immediate unsupported error", events)
+	}
+	var agentErr *AgentError
+	if !errors.As(err, &agentErr) {
+		t.Fatalf("RunStream error = %T, want *AgentError", err)
+	}
+	if agentErr.Category != ErrorCategoryStreaming || agentErr.Operation != "stream.unsupported" {
+		t.Fatalf("streaming unsupported category/operation = %q/%q, want streaming/stream.unsupported", agentErr.Category, agentErr.Operation)
+	}
+	if agentErr.RunID != "stream-run" || agentErr.RequestID == "" || agentErr.Round != 1 || agentErr.ParentRequestID != "" {
+		t.Fatalf("streaming unsupported context = %#v, want run/request/round and empty parent", agentErr)
+	}
+	assertAgentErrorTraceContext(t, agentErr, trace)
+
+	observations := recorder.Observations()
+	afterModel := failedObservationOfType(t, observations, EventAfterModel)
+	if afterModel.AgentID != "stream-agent" || afterModel.RunID != "stream-run" || afterModel.RequestID != agentErr.RequestID || afterModel.Round != 1 || afterModel.ParentRequestID != "" {
+		t.Fatalf("failed after model observation context = %#v, want agent/run/request/round and empty parent", afterModel)
+	}
+	assertObservationTraceContext(t, afterModel, trace)
+	if afterModel.ErrorCategory != ErrorCategoryStreaming || afterModel.Duration <= 0 || afterModel.EstimatedTokens <= 0 {
+		t.Fatalf("failed after model observation fields = %#v, want streaming category, duration, and estimated tokens", afterModel)
+	}
+	if afterModel.TokenUsage != (TokenUsage{}) {
+		t.Fatalf("failed after model observation token usage = %#v, want no invented usage", afterModel.TokenUsage)
+	}
+	assertZeroStreamTelemetry(t, afterModel.StreamTelemetry)
+
+	observation := firstObservationOfType(t, observations, EventStreamError)
+	if observation.AgentID != "stream-agent" || observation.RunID != "stream-run" || observation.RequestID != agentErr.RequestID || observation.Round != 1 || observation.ParentRequestID != "" {
+		t.Fatalf("stream error observation context = %#v, want agent/run/request/round and empty parent", observation)
+	}
+	assertObservationTraceContext(t, observation, trace)
+	if !observation.Failed || observation.ErrorCategory != ErrorCategoryStreaming {
+		t.Fatalf("stream error observation failure = %#v, want failed streaming category", observation)
+	}
+	if observation.Duration <= 0 || observation.EstimatedTokens <= 0 {
+		t.Fatalf("stream error observation audit fields = %#v, want duration and estimated tokens", observation)
+	}
+	if observation.TokenUsage != (TokenUsage{}) {
+		t.Fatalf("stream error observation token usage = %#v, want no invented usage", observation.TokenUsage)
+	}
+	assertZeroStreamTelemetry(t, observation.StreamTelemetry)
+}
+
 func TestAgentRunStreamEmitsErrorEventAndSkipsIncompleteAssistantMessage(t *testing.T) {
 	ctx := context.Background()
 	streamErr := errors.New("stream interrupted")
@@ -1733,6 +1799,69 @@ func TestAgentRunStreamHookErrorDoesNotEmitRecursiveHookEvent(t *testing.T) {
 	if hookCalls != 2 {
 		t.Fatalf("hook calls = %d, want before_model plus one after_model hook call", hookCalls)
 	}
+}
+
+func TestAgentRunStreamFinalAfterModelHookErrorEmitsFailedObservationMetadata(t *testing.T) {
+	trace := TraceContext{
+		TraceID:    "trace-stream-hook",
+		SpanID:     "span-stream-hook",
+		TraceState: "vendor=hook",
+	}
+	ctx := WithTraceContext(context.Background(), trace)
+	hookErr := errors.New("hook rejected")
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "partial"},
+		{Type: StreamEventDone},
+	}}
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-agent"}, model,
+		WithObserver(recorder),
+		WithHook(func(ctx context.Context, event Event) error {
+			if event.Type == EventAfterModel {
+				return hookErr
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := agent.RunStream(ctx, "start", WithRunID("stream-hook-run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if len(got) != 2 || got[0].Type != StreamEventDelta || got[1].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want delta then hook error", got)
+	}
+	if !errors.Is(got[1].Error, hookErr) {
+		t.Fatalf("stream error = %v, want hook error", got[1].Error)
+	}
+	var agentErr *AgentError
+	if !errors.As(got[1].Error, &agentErr) {
+		t.Fatalf("stream error = %T, want *AgentError", got[1].Error)
+	}
+	if agentErr.Category != ErrorCategoryHook || agentErr.Operation != "hook.after_model" {
+		t.Fatalf("stream hook error category/operation = %q/%q, want hook/hook.after_model", agentErr.Category, agentErr.Operation)
+	}
+	if agentErr.RunID != "stream-hook-run" || agentErr.RequestID == "" || agentErr.Round != 1 || agentErr.ParentRequestID != "" {
+		t.Fatalf("stream hook error context = %#v, want run/request/round and empty parent", agentErr)
+	}
+	assertAgentErrorTraceContext(t, agentErr, trace)
+
+	observation := failedObservationOfType(t, recorder.Observations(), EventAfterModel)
+	if observation.AgentID != "stream-agent" || observation.RunID != "stream-hook-run" || observation.RequestID != agentErr.RequestID || observation.Round != 1 || observation.ParentRequestID != "" {
+		t.Fatalf("failed after model observation context = %#v, want agent/run/request/round and empty parent", observation)
+	}
+	assertObservationTraceContext(t, observation, trace)
+	if observation.ErrorCategory != ErrorCategoryHook || observation.Duration <= 0 || observation.EstimatedTokens <= 0 {
+		t.Fatalf("failed after model observation fields = %#v, want hook category, duration, and estimated tokens", observation)
+	}
+	if observation.TokenUsage != (TokenUsage{}) {
+		t.Fatalf("failed after model observation token usage = %#v, want no invented usage", observation.TokenUsage)
+	}
+	assertStreamTelemetry(t, observation.StreamTelemetry, 1, len("partial"), true)
 }
 
 func TestAgentMaxToolRoundsErrorHasStructuredContext(t *testing.T) {
@@ -2483,6 +2612,17 @@ func firstEventOfTypeAndRound(t *testing.T, events []Event, eventType EventType,
 	}
 	t.Fatalf("events = %#v, want %s in round %d", events, eventType, round)
 	return Event{}
+}
+
+func failedObservationOfType(t *testing.T, observations []Observation, eventType EventType) Observation {
+	t.Helper()
+	for _, observation := range observations {
+		if observation.Type == eventType && observation.Failed {
+			return observation
+		}
+	}
+	t.Fatalf("observations = %#v, want failed %s", observations, eventType)
+	return Observation{}
 }
 
 func assertStreamTelemetry(t *testing.T, telemetry StreamTelemetry, deltaCount int, byteCount int, wantFirstToken bool) {
