@@ -1,0 +1,37 @@
+AGENTS.md
+  8c90619e5de05388 1-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "fa2681b8cd3b8707f426b2e3cdae924e4f82bdb2",
+  "prompts": {
+    "7a4f7aa709516e8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3dcf-a288-75a1-b515-1bed3b367a05",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 327,
+      "overriden_lines": 0
+    },
+    "8c90619e5de05388": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f2ab5e52-6fc3-464e-93f8-07346bf4c499",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 56,
+      "total_deletions": 0,
+      "accepted_lines": 56,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/1ebbf0d30f6d60f88d25f1843254de3c3b1d39991503428e178ce590d950dd6b"
+    }
+  }
+}
