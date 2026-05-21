@@ -103,6 +103,50 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 	assertSlogField(t, provider, "rate_limit_reset", "60")
 }
 
+func TestSlogObserverEmitsStableTelemetryAttributeNames(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
+		ReplaceAttr: dropSlogTime,
+	}))
+	observer := NewSlogObserver(SlogObserverOptions{Logger: logger})
+	observation := Observation{
+		Type:            EventAfterTool,
+		AgentID:         "agent-1",
+		RunID:           "run-1",
+		RequestID:       "request-1",
+		ParentRequestID: "parent-request-1",
+		Duration:        25 * time.Millisecond,
+		ToolName:        "lookup",
+		ToolRisk:        ToolRiskRead,
+		ErrorCategory:   ErrorCategoryTool,
+		Failed:          true,
+		ProviderDiagnostics: ProviderDiagnostics{
+			Provider:     "openai-compatible",
+			HTTPStatus:   429,
+			EndpointHost: "https://api.example.test/v1/chat?api_key=secret",
+			RequestID:    "provider-request-1",
+		},
+	}
+
+	observer.Observe(context.Background(), observation)
+
+	record := decodeSlogRecord(t, buf.String())
+	assertSlogField(t, record, TelemetryAttrEvent, string(EventAfterTool))
+	assertSlogField(t, record, TelemetryAttrFailed, true)
+	assertSlogField(t, record, TelemetryAttrAgentID, "agent-1")
+	assertSlogField(t, record, TelemetryAttrRunID, "run-1")
+	assertSlogField(t, record, TelemetryAttrRequestID, "request-1")
+	assertSlogField(t, record, TelemetryAttrParentRequestID, "parent-request-1")
+	assertSlogField(t, record, TelemetryAttrDurationMS, float64(25))
+	assertSlogField(t, record, TelemetryAttrToolName, "lookup")
+	assertSlogField(t, record, TelemetryAttrToolRisk, string(ToolRiskRead))
+	assertSlogField(t, record, TelemetryAttrErrorCategory, string(ErrorCategoryTool))
+	assertSlogField(t, record, TelemetryAttrProviderName, "openai-compatible")
+	assertSlogField(t, record, TelemetryAttrProviderHTTPStatus, float64(429))
+	assertSlogField(t, record, TelemetryAttrProviderEndpointHost, "api.example.test")
+	assertSlogField(t, record, TelemetryAttrProviderRequestID, "provider-request-1")
+}
+
 func TestSlogObserverOmitsZeroObservationAttributes(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{

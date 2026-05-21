@@ -21,8 +21,8 @@ type SlogObserverOptions struct {
 }
 
 // SlogObserver logs sanitized lifecycle telemetry with Go's standard log/slog
-// package. It emits event and failed for every observation, and omits other
-// zero-value attributes.
+// package. It emits stable agent.* fields, keeps legacy field aliases for
+// compatibility, and omits other zero-value attributes.
 type SlogObserver struct {
 	logger  *slog.Logger
 	level   slog.Level
@@ -62,6 +62,44 @@ func (o SlogObserver) Observe(ctx context.Context, observation Observation) {
 }
 
 func slogObservationAttrs(observation Observation) []slog.Attr {
+	attrs := stableSlogObservationAttrs(observation)
+	return append(attrs, legacySlogObservationAttrs(observation)...)
+}
+
+func stableSlogObservationAttrs(observation Observation) []slog.Attr {
+	attrs := []slog.Attr{
+		slog.String(TelemetryAttrEvent, string(observation.Type)),
+		slog.Bool(TelemetryAttrFailed, observation.Failed),
+	}
+	attrs = appendSlogString(attrs, TelemetryAttrAgentID, observation.AgentID)
+	attrs = appendSlogString(attrs, TelemetryAttrRunID, observation.RunID)
+	attrs = appendSlogString(attrs, TelemetryAttrSubagentID, observation.SubagentID)
+	attrs = appendSlogString(attrs, TelemetryAttrTraceID, observation.TraceID)
+	attrs = appendSlogString(attrs, TelemetryAttrSpanID, observation.SpanID)
+	attrs = appendSlogString(attrs, TelemetryAttrTraceState, observation.TraceState)
+	attrs = appendSlogString(attrs, TelemetryAttrRequestID, observation.RequestID)
+	attrs = appendSlogString(attrs, TelemetryAttrParentRequestID, observation.ParentRequestID)
+	if observation.Round > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrRound, observation.Round))
+	}
+	if observation.Duration > 0 {
+		attrs = append(attrs, slog.Float64(TelemetryAttrDurationMS, durationMilliseconds(observation.Duration)))
+	}
+	if observation.EstimatedTokens > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrEstimatedTokens, observation.EstimatedTokens))
+	}
+	attrs = appendStableTokenUsageSlogAttrs(attrs, observation.TokenUsage)
+	attrs = appendStableStreamTelemetrySlogAttrs(attrs, observation.StreamTelemetry)
+	attrs = appendStableToolSlogAttrs(attrs, observation)
+	attrs = appendSlogString(attrs, TelemetryAttrSkillName, observation.SkillName)
+	attrs = appendStableApprovalSlogAttrs(attrs, observation)
+	attrs = appendSlogString(attrs, TelemetryAttrErrorCategory, string(observation.ErrorCategory))
+	attrs = appendSlogString(attrs, TelemetryAttrErrorModelSubcategory, string(observation.ModelErrorSubcategory))
+	attrs = appendStableProviderDiagnosticsSlogAttrs(attrs, observation.ProviderDiagnostics)
+	return attrs
+}
+
+func legacySlogObservationAttrs(observation Observation) []slog.Attr {
 	attrs := []slog.Attr{
 		slog.String("event", string(observation.Type)),
 		slog.Bool("failed", observation.Failed),
@@ -78,8 +116,7 @@ func slogObservationAttrs(observation Observation) []slog.Attr {
 		attrs = append(attrs, slog.Int("round", observation.Round))
 	}
 	if observation.Duration > 0 {
-		durationMS := float64(observation.Duration) / float64(time.Millisecond)
-		attrs = append(attrs, slog.Float64("duration_ms", durationMS))
+		attrs = append(attrs, slog.Float64("duration_ms", durationMilliseconds(observation.Duration)))
 	}
 	if observation.EstimatedTokens > 0 {
 		attrs = append(attrs, slog.Int("estimated_tokens", observation.EstimatedTokens))
@@ -102,6 +139,94 @@ func slogObservationAttrs(observation Observation) []slog.Attr {
 	if providerAttrs := providerDiagnosticsSlogAttrs(observation.ProviderDiagnostics); providerAttrs != nil {
 		attrs = append(attrs, slogGroupAttr("provider_diagnostics", providerAttrs))
 	}
+	return attrs
+}
+
+func appendStableTokenUsageSlogAttrs(attrs []slog.Attr, usage TokenUsage) []slog.Attr {
+	if usage.InputTokens > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrTokensInput, usage.InputTokens))
+	}
+	if usage.OutputTokens > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrTokensOutput, usage.OutputTokens))
+	}
+	if usage.TotalTokens > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrTokensTotal, usage.TotalTokens))
+	}
+	return attrs
+}
+
+func appendStableStreamTelemetrySlogAttrs(attrs []slog.Attr, telemetry StreamTelemetry) []slog.Attr {
+	if telemetry.TimeToFirstToken > 0 {
+		attrs = append(attrs, slog.Float64(TelemetryAttrStreamTimeToFirstTokenMS, durationMilliseconds(telemetry.TimeToFirstToken)))
+	}
+	if telemetry.DeltaCount > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrStreamDeltaCount, telemetry.DeltaCount))
+	}
+	if telemetry.ByteCount > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrStreamByteCount, telemetry.ByteCount))
+	}
+	if telemetry.ThroughputBytesPerSecond > 0 {
+		attrs = append(attrs, slog.Float64(TelemetryAttrStreamThroughputBytesPerSec, telemetry.ThroughputBytesPerSecond))
+	}
+	return attrs
+}
+
+func appendStableToolSlogAttrs(attrs []slog.Attr, observation Observation) []slog.Attr {
+	attrs = appendSlogString(attrs, TelemetryAttrToolName, observation.ToolName)
+	attrs = appendSlogString(attrs, TelemetryAttrToolRisk, string(observation.ToolRisk))
+	attrs = appendSlogString(attrs, TelemetryAttrToolSchemaHash, observation.ToolSchemaHash)
+	attrs = appendStableToolTimingSlogAttrs(attrs, observation.ToolTiming)
+	attrs = appendStableToolResultMetadataSlogAttrs(attrs, observation.ToolResultMetadata)
+	return attrs
+}
+
+func appendStableToolTimingSlogAttrs(attrs []slog.Attr, timing ToolLifecycleTiming) []slog.Attr {
+	if timing.Validation > 0 {
+		attrs = append(attrs, slog.Float64(TelemetryAttrToolTimingValidationMS, durationMilliseconds(timing.Validation)))
+	}
+	if timing.Approval > 0 {
+		attrs = append(attrs, slog.Float64(TelemetryAttrToolTimingApprovalMS, durationMilliseconds(timing.Approval)))
+	}
+	if timing.Execution > 0 {
+		attrs = append(attrs, slog.Float64(TelemetryAttrToolTimingExecutionMS, durationMilliseconds(timing.Execution)))
+	}
+	return attrs
+}
+
+func appendStableToolResultMetadataSlogAttrs(attrs []slog.Attr, metadata ToolResultMetadata) []slog.Attr {
+	if metadata.ContentBytes > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrToolResultContentBytes, metadata.ContentBytes))
+	}
+	if len(metadata.MetadataKeys) > 0 {
+		attrs = append(attrs, slog.Any(TelemetryAttrToolResultMetadataKeys, append([]string(nil), metadata.MetadataKeys...)))
+	}
+	if metadata.MCPIsError != nil {
+		attrs = append(attrs, slog.Bool(TelemetryAttrToolResultMCPIsError, *metadata.MCPIsError))
+	}
+	return attrs
+}
+
+func appendStableApprovalSlogAttrs(attrs []slog.Attr, observation Observation) []slog.Attr {
+	if observation.Type == EventBeforeApproval || observation.Type == EventAfterApproval || observation.Approved || observation.ApprovalReason != "" {
+		attrs = append(attrs, slog.Bool(TelemetryAttrApprovalApproved, observation.Approved))
+	}
+	return appendSlogString(attrs, TelemetryAttrApprovalReason, observation.ApprovalReason)
+}
+
+func appendStableProviderDiagnosticsSlogAttrs(attrs []slog.Attr, diagnostics ProviderDiagnostics) []slog.Attr {
+	if diagnostics.IsZero() {
+		return attrs
+	}
+	attrs = appendSlogString(attrs, TelemetryAttrProviderName, diagnostics.Provider)
+	if diagnostics.HTTPStatus > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrProviderHTTPStatus, diagnostics.HTTPStatus))
+	}
+	attrs = appendSlogString(attrs, TelemetryAttrProviderEndpointHost, safeSlogEndpointHost(diagnostics.EndpointHost))
+	attrs = appendSlogString(attrs, TelemetryAttrProviderRequestID, diagnostics.RequestID)
+	attrs = appendSlogString(attrs, TelemetryAttrProviderRetryAfter, diagnostics.RetryAfter)
+	attrs = appendSlogString(attrs, TelemetryAttrProviderRateLimitLimit, diagnostics.RateLimitLimit)
+	attrs = appendSlogString(attrs, TelemetryAttrProviderRateLimitRemaining, diagnostics.RateLimitRemaining)
+	attrs = appendSlogString(attrs, TelemetryAttrProviderRateLimitReset, diagnostics.RateLimitReset)
 	return attrs
 }
 

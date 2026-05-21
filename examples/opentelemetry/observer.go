@@ -180,70 +180,70 @@ func isEndingObservation(eventType agent.EventType) bool {
 
 func observationAttributes(observation agent.Observation) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
-		attribute.String("cube.agent.event", string(observation.Type)),
-		attribute.Bool("cube.agent.failed", observation.Failed),
+		attribute.String(agent.TelemetryAttrEvent, string(observation.Type)),
+		attribute.Bool(agent.TelemetryAttrFailed, observation.Failed),
 	}
-	attrs = appendStringAttr(attrs, "cube.agent.id", observation.AgentID)
-	attrs = appendStringAttr(attrs, "cube.agent.run_id", observation.RunID)
-	attrs = appendStringAttr(attrs, "cube.agent.subagent_id", observation.SubagentID)
-	attrs = appendStringAttr(attrs, "cube.agent.trace_id", observation.TraceID)
-	attrs = appendStringAttr(attrs, "cube.agent.span_id", observation.SpanID)
-	attrs = appendStringAttr(attrs, "cube.agent.trace_state", observation.TraceState)
-	attrs = appendStringAttr(attrs, "cube.agent.request_id", observation.RequestID)
-	attrs = appendStringAttr(attrs, "cube.agent.parent_request_id", observation.ParentRequestID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrAgentID, observation.AgentID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrRunID, observation.RunID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrSubagentID, observation.SubagentID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrTraceID, observation.TraceID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrSpanID, observation.SpanID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrTraceState, observation.TraceState)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrRequestID, observation.RequestID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrParentRequestID, observation.ParentRequestID)
 	if observation.Round > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.round", observation.Round))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrRound, observation.Round))
 	}
 	if observation.Duration > 0 {
-		attrs = append(attrs, attribute.Float64("cube.agent.duration_ms", durationMilliseconds(observation.Duration)))
+		attrs = append(attrs, attribute.Float64(agent.TelemetryAttrDurationMS, durationMilliseconds(observation.Duration)))
 	}
 	if observation.EstimatedTokens > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.estimated_tokens", observation.EstimatedTokens))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrEstimatedTokens, observation.EstimatedTokens))
 	}
 	attrs = appendTokenUsageAttrs(attrs, observation.TokenUsage)
 	attrs = appendStreamAttrs(attrs, observation.StreamTelemetry)
 	attrs = appendToolAttrs(attrs, observation)
-	attrs = appendStringAttr(attrs, "cube.agent.skill_name", observation.SkillName)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrSkillName, observation.SkillName)
 	attrs = appendApprovalAttrs(attrs, observation)
-	attrs = appendStringAttr(attrs, "cube.agent.error_category", string(observation.ErrorCategory))
-	attrs = appendStringAttr(attrs, "cube.agent.model_error_subcategory", string(observation.ModelErrorSubcategory))
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrErrorCategory, string(observation.ErrorCategory))
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrErrorModelSubcategory, string(observation.ModelErrorSubcategory))
 	attrs = appendProviderAttrs(attrs, observation.ProviderDiagnostics)
 	return attrs
 }
 
 func appendTokenUsageAttrs(attrs []attribute.KeyValue, usage agent.TokenUsage) []attribute.KeyValue {
 	if usage.InputTokens > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.tokens.input", usage.InputTokens))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrTokensInput, usage.InputTokens))
 	}
 	if usage.OutputTokens > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.tokens.output", usage.OutputTokens))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrTokensOutput, usage.OutputTokens))
 	}
 	if usage.TotalTokens > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.tokens.total", usage.TotalTokens))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrTokensTotal, usage.TotalTokens))
 	}
 	return attrs
 }
 
 func appendStreamAttrs(attrs []attribute.KeyValue, telemetry agent.StreamTelemetry) []attribute.KeyValue {
 	if telemetry.TimeToFirstToken > 0 {
-		attrs = append(attrs, attribute.Float64("cube.agent.stream.time_to_first_token_ms", durationMilliseconds(telemetry.TimeToFirstToken)))
+		attrs = append(attrs, attribute.Float64(agent.TelemetryAttrStreamTimeToFirstTokenMS, durationMilliseconds(telemetry.TimeToFirstToken)))
 	}
 	if telemetry.DeltaCount > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.stream.delta_count", telemetry.DeltaCount))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrStreamDeltaCount, telemetry.DeltaCount))
 	}
 	if telemetry.ByteCount > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.stream.byte_count", telemetry.ByteCount))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrStreamByteCount, telemetry.ByteCount))
 	}
 	if telemetry.ThroughputBytesPerSecond > 0 {
-		attrs = append(attrs, attribute.Float64("cube.agent.stream.throughput_bytes_per_second", telemetry.ThroughputBytesPerSecond))
+		attrs = append(attrs, attribute.Float64(agent.TelemetryAttrStreamThroughputBytesPerSec, telemetry.ThroughputBytesPerSecond))
 	}
 	return attrs
 }
 
 func appendToolAttrs(attrs []attribute.KeyValue, observation agent.Observation) []attribute.KeyValue {
-	attrs = appendStringAttr(attrs, "cube.agent.tool.name", observation.ToolName)
-	attrs = appendStringAttr(attrs, "cube.agent.tool.risk", string(observation.ToolRisk))
-	attrs = appendStringAttr(attrs, "cube.agent.tool.schema_hash", observation.ToolSchemaHash)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrToolName, observation.ToolName)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrToolRisk, string(observation.ToolRisk))
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrToolSchemaHash, observation.ToolSchemaHash)
 	attrs = appendToolTimingAttrs(attrs, observation.ToolTiming)
 	attrs = appendToolResultMetadataAttrs(attrs, observation.ToolResultMetadata)
 	return attrs
@@ -251,35 +251,35 @@ func appendToolAttrs(attrs []attribute.KeyValue, observation agent.Observation) 
 
 func appendToolTimingAttrs(attrs []attribute.KeyValue, timing agent.ToolLifecycleTiming) []attribute.KeyValue {
 	if timing.Validation > 0 {
-		attrs = append(attrs, attribute.Float64("cube.agent.tool.timing.validation_ms", durationMilliseconds(timing.Validation)))
+		attrs = append(attrs, attribute.Float64(agent.TelemetryAttrToolTimingValidationMS, durationMilliseconds(timing.Validation)))
 	}
 	if timing.Approval > 0 {
-		attrs = append(attrs, attribute.Float64("cube.agent.tool.timing.approval_ms", durationMilliseconds(timing.Approval)))
+		attrs = append(attrs, attribute.Float64(agent.TelemetryAttrToolTimingApprovalMS, durationMilliseconds(timing.Approval)))
 	}
 	if timing.Execution > 0 {
-		attrs = append(attrs, attribute.Float64("cube.agent.tool.timing.execution_ms", durationMilliseconds(timing.Execution)))
+		attrs = append(attrs, attribute.Float64(agent.TelemetryAttrToolTimingExecutionMS, durationMilliseconds(timing.Execution)))
 	}
 	return attrs
 }
 
 func appendToolResultMetadataAttrs(attrs []attribute.KeyValue, metadata agent.ToolResultMetadata) []attribute.KeyValue {
 	if metadata.ContentBytes > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.tool.result.content_bytes", metadata.ContentBytes))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrToolResultContentBytes, metadata.ContentBytes))
 	}
 	if len(metadata.MetadataKeys) > 0 {
-		attrs = append(attrs, attribute.StringSlice("cube.agent.tool.result.metadata_keys", append([]string(nil), metadata.MetadataKeys...)))
+		attrs = append(attrs, attribute.StringSlice(agent.TelemetryAttrToolResultMetadataKeys, append([]string(nil), metadata.MetadataKeys...)))
 	}
 	if metadata.MCPIsError != nil {
-		attrs = append(attrs, attribute.Bool("cube.agent.tool.result.mcp_is_error", *metadata.MCPIsError))
+		attrs = append(attrs, attribute.Bool(agent.TelemetryAttrToolResultMCPIsError, *metadata.MCPIsError))
 	}
 	return attrs
 }
 
 func appendApprovalAttrs(attrs []attribute.KeyValue, observation agent.Observation) []attribute.KeyValue {
 	if observation.Type == agent.EventBeforeApproval || observation.Type == agent.EventAfterApproval || observation.Approved || observation.ApprovalReason != "" {
-		attrs = append(attrs, attribute.Bool("cube.agent.approval.approved", observation.Approved))
+		attrs = append(attrs, attribute.Bool(agent.TelemetryAttrApprovalApproved, observation.Approved))
 	}
-	attrs = appendStringAttr(attrs, "cube.agent.approval.reason", observation.ApprovalReason)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrApprovalReason, observation.ApprovalReason)
 	return attrs
 }
 
@@ -287,16 +287,16 @@ func appendProviderAttrs(attrs []attribute.KeyValue, diagnostics agent.ProviderD
 	if diagnostics.IsZero() {
 		return attrs
 	}
-	attrs = appendStringAttr(attrs, "cube.agent.provider.name", diagnostics.Provider)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrProviderName, diagnostics.Provider)
 	if diagnostics.HTTPStatus > 0 {
-		attrs = append(attrs, attribute.Int("cube.agent.provider.http_status", diagnostics.HTTPStatus))
+		attrs = append(attrs, attribute.Int(agent.TelemetryAttrProviderHTTPStatus, diagnostics.HTTPStatus))
 	}
-	attrs = appendStringAttr(attrs, "cube.agent.provider.endpoint_host", safeEndpointHost(diagnostics.EndpointHost))
-	attrs = appendStringAttr(attrs, "cube.agent.provider.request_id", diagnostics.RequestID)
-	attrs = appendStringAttr(attrs, "cube.agent.provider.retry_after", diagnostics.RetryAfter)
-	attrs = appendStringAttr(attrs, "cube.agent.provider.rate_limit.limit", diagnostics.RateLimitLimit)
-	attrs = appendStringAttr(attrs, "cube.agent.provider.rate_limit.remaining", diagnostics.RateLimitRemaining)
-	attrs = appendStringAttr(attrs, "cube.agent.provider.rate_limit.reset", diagnostics.RateLimitReset)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrProviderEndpointHost, safeEndpointHost(diagnostics.EndpointHost))
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrProviderRequestID, diagnostics.RequestID)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrProviderRetryAfter, diagnostics.RetryAfter)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrProviderRateLimitLimit, diagnostics.RateLimitLimit)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrProviderRateLimitRemaining, diagnostics.RateLimitRemaining)
+	attrs = appendStringAttr(attrs, agent.TelemetryAttrProviderRateLimitReset, diagnostics.RateLimitReset)
 	return attrs
 }
 

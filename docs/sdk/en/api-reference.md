@@ -160,6 +160,62 @@ method-level details while keeping this page as a navigation aid.
 - `DefaultMetricsFailureCounterName`
 - `DefaultMetricsDurationName`
 - `DefaultMetricsToolLifecycleDurationName`
+- `TelemetryAttrEvent`
+- `TelemetryAttrFailed`
+- `TelemetryAttrAgentID`
+- `TelemetryAttrRunID`
+- `TelemetryAttrSubagentID`
+- `TelemetryAttrTraceID`
+- `TelemetryAttrSpanID`
+- `TelemetryAttrTraceState`
+- `TelemetryAttrRequestID`
+- `TelemetryAttrParentRequestID`
+- `TelemetryAttrRound`
+- `TelemetryAttrDurationMS`
+- `TelemetryAttrEstimatedTokens`
+- `TelemetryAttrTokensInput`
+- `TelemetryAttrTokensOutput`
+- `TelemetryAttrTokensTotal`
+- `TelemetryAttrStreamTimeToFirstTokenMS`
+- `TelemetryAttrStreamDeltaCount`
+- `TelemetryAttrStreamByteCount`
+- `TelemetryAttrStreamThroughputBytesPerSec`
+- `TelemetryAttrToolName`
+- `TelemetryAttrToolRisk`
+- `TelemetryAttrToolSchemaHash`
+- `TelemetryAttrToolTimingValidationMS`
+- `TelemetryAttrToolTimingApprovalMS`
+- `TelemetryAttrToolTimingExecutionMS`
+- `TelemetryAttrToolResultContentBytes`
+- `TelemetryAttrToolResultMetadataKeys`
+- `TelemetryAttrToolResultMCPIsError`
+- `TelemetryAttrSkillName`
+- `TelemetryAttrApprovalApproved`
+- `TelemetryAttrApprovalReason`
+- `TelemetryAttrErrorCategory`
+- `TelemetryAttrErrorModelSubcategory`
+- `TelemetryAttrProviderName`
+- `TelemetryAttrProviderHTTPStatus`
+- `TelemetryAttrProviderEndpointHost`
+- `TelemetryAttrProviderRequestID`
+- `TelemetryAttrProviderRetryAfter`
+- `TelemetryAttrProviderRateLimitLimit`
+- `TelemetryAttrProviderRateLimitRemaining`
+- `TelemetryAttrProviderRateLimitReset`
+- `TelemetryMetricLabelEvent`
+- `TelemetryMetricLabelFailed`
+- `TelemetryMetricLabelErrorCategory`
+- `TelemetryMetricLabelModelErrorSubcategory`
+- `TelemetryMetricLabelToolName`
+- `TelemetryMetricLabelToolRisk`
+- `TelemetryMetricLabelProvider`
+- `TelemetryMetricLabelHTTPStatus`
+- `TelemetryMetricLabelToolPhase`
+- `StableTelemetryAttributeNames`
+- `LowCardinalityTelemetryAttributeNames`
+- `HighCardinalityTelemetryAttributeNames`
+- `StableTelemetryMetricLabelNames`
+- `ForbiddenTelemetryFieldNames`
 - `StreamTelemetry`
 - `ToolLifecycleTiming`
 - `ToolResultMetadata`
@@ -178,6 +234,10 @@ present.
 After-tool observations also include `ToolTiming`, a `ToolLifecycleTiming`
 value that separates validation, approval, and execution durations while
 `Duration` remains the total tool lifecycle duration.
+`TelemetryAttr*` constants define the stable `agent.*` log/trace/custom
+observer attribute names. `TelemetryMetricLabel*` constants define the stable
+`MetricsObserver` label names. The list helpers return copies for tests,
+documentation, and integrations that need drift detection.
 
 ## Errors
 

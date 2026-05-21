@@ -18,7 +18,8 @@ Applications connect those pieces through Go interfaces and options.
 - [MCP](./mcp.md): MCP server metadata and stdio tool bridging.
 - [Sessions](./sessions.md): reset, snapshot, restore, and fork.
 - [Approvals](./approvals.md): built-in policies and production approval flows.
-- [Observability](./observability.md): hooks, observers, and sanitized telemetry.
+- [Observability](./observability.md): hooks, observers, stable telemetry names,
+  and sanitized telemetry.
 - [Errors](./errors.md): sentinel errors and structured `AgentError` handling.
 - [Skills](./skills.md): reusable instruction bundles and activation paths.
 - [Compaction](./compaction.md): context threshold checks and summarization.

@@ -33,14 +33,14 @@ func TestMetricsObserverEmitsCountersAndDurationWithSafeLabels(t *testing.T) {
 	observer.Observe(context.Background(), observation)
 
 	wantLabels := []MetricLabel{
-		{Name: "event", Value: string(EventAfterTool)},
-		{Name: "failed", Value: "true"},
-		{Name: "error_category", Value: string(ErrorCategoryTool)},
-		{Name: "model_error_subcategory", Value: string(ModelErrorSubcategoryRateLimited)},
-		{Name: "tool_name", Value: "lookup"},
-		{Name: "tool_risk", Value: string(ToolRiskRead)},
-		{Name: "provider", Value: "openai-compatible"},
-		{Name: "http_status", Value: "429"},
+		{Name: TelemetryMetricLabelEvent, Value: string(EventAfterTool)},
+		{Name: TelemetryMetricLabelFailed, Value: "true"},
+		{Name: TelemetryMetricLabelErrorCategory, Value: string(ErrorCategoryTool)},
+		{Name: TelemetryMetricLabelModelErrorSubcategory, Value: string(ModelErrorSubcategoryRateLimited)},
+		{Name: TelemetryMetricLabelToolName, Value: "lookup"},
+		{Name: TelemetryMetricLabelToolRisk, Value: string(ToolRiskRead)},
+		{Name: TelemetryMetricLabelProvider, Value: "openai-compatible"},
+		{Name: TelemetryMetricLabelHTTPStatus, Value: "429"},
 	}
 	calls := sink.Calls()
 	if len(calls) != 3 {
@@ -63,8 +63,8 @@ func TestMetricsObserverSkipsFailureAndDurationWhenNotApplicable(t *testing.T) {
 	})
 
 	wantLabels := []MetricLabel{
-		{Name: "event", Value: string(EventBeforeModel)},
-		{Name: "failed", Value: "false"},
+		{Name: TelemetryMetricLabelEvent, Value: string(EventBeforeModel)},
+		{Name: TelemetryMetricLabelFailed, Value: "false"},
 	}
 	calls := sink.Calls()
 	if len(calls) != 1 {
@@ -128,27 +128,27 @@ func TestMetricsObserverRecordsToolLifecycleTimingSegmentsWithSafeLabels(t *test
 		t.Fatalf("metric calls = %d, want 4: %#v", len(calls), calls)
 	}
 	baseLabels := []MetricLabel{
-		{Name: "event", Value: string(EventAfterTool)},
-		{Name: "failed", Value: "true"},
-		{Name: "error_category", Value: string(ErrorCategoryApproval)},
-		{Name: "tool_name", Value: "lookup"},
-		{Name: "tool_risk", Value: string(ToolRiskWrite)},
+		{Name: TelemetryMetricLabelEvent, Value: string(EventAfterTool)},
+		{Name: TelemetryMetricLabelFailed, Value: "true"},
+		{Name: TelemetryMetricLabelErrorCategory, Value: string(ErrorCategoryApproval)},
+		{Name: TelemetryMetricLabelToolName, Value: "lookup"},
+		{Name: TelemetryMetricLabelToolRisk, Value: string(ToolRiskWrite)},
 	}
 	assertMetricCounterCall(t, calls[0], DefaultMetricsEventCounterName, 1, baseLabels)
 	assertMetricCounterCall(t, calls[1], DefaultMetricsFailureCounterName, 1, baseLabels)
 	assertMetricDurationCall(t, calls[2], DefaultMetricsToolLifecycleDurationName, 11*time.Millisecond, []MetricLabel{
-		{Name: "event", Value: string(EventAfterTool)},
-		{Name: "failed", Value: "true"},
-		{Name: "error_category", Value: string(ErrorCategoryApproval)},
-		{Name: "tool_risk", Value: string(ToolRiskWrite)},
-		{Name: "tool_phase", Value: "validation"},
+		{Name: TelemetryMetricLabelEvent, Value: string(EventAfterTool)},
+		{Name: TelemetryMetricLabelFailed, Value: "true"},
+		{Name: TelemetryMetricLabelErrorCategory, Value: string(ErrorCategoryApproval)},
+		{Name: TelemetryMetricLabelToolRisk, Value: string(ToolRiskWrite)},
+		{Name: TelemetryMetricLabelToolPhase, Value: "validation"},
 	})
 	assertMetricDurationCall(t, calls[3], DefaultMetricsToolLifecycleDurationName, 22*time.Millisecond, []MetricLabel{
-		{Name: "event", Value: string(EventAfterTool)},
-		{Name: "failed", Value: "true"},
-		{Name: "error_category", Value: string(ErrorCategoryApproval)},
-		{Name: "tool_risk", Value: string(ToolRiskWrite)},
-		{Name: "tool_phase", Value: "approval"},
+		{Name: TelemetryMetricLabelEvent, Value: string(EventAfterTool)},
+		{Name: TelemetryMetricLabelFailed, Value: "true"},
+		{Name: TelemetryMetricLabelErrorCategory, Value: string(ErrorCategoryApproval)},
+		{Name: TelemetryMetricLabelToolRisk, Value: string(ToolRiskWrite)},
+		{Name: TelemetryMetricLabelToolPhase, Value: "approval"},
 	})
 	assertMetricLabelsOmitHighCardinalityFields(t, calls)
 	assertMetricLabelsOmitToolLifecycleTimingHighCardinalityFields(t, calls)
@@ -283,7 +283,7 @@ func assertMetricLabelsOmitToolLifecycleTimingHighCardinalityFields(t *testing.T
 			continue
 		}
 		for _, label := range call.labels {
-			if label.Name == "tool_name" || label.Value == "lookup" {
+			if label.Name == TelemetryMetricLabelToolName || label.Value == "lookup" {
 				t.Fatalf("tool lifecycle metric labels included high-cardinality tool name in call %#v", call)
 			}
 		}

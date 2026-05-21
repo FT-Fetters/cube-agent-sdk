@@ -115,28 +115,28 @@ func defaultMetricName(name string, defaultName string) string {
 
 func metricsObservationLabels(observation Observation) []MetricLabel {
 	labels := []MetricLabel{
-		{Name: "event", Value: strings.TrimSpace(string(observation.Type))},
-		{Name: "failed", Value: strconv.FormatBool(observation.Failed)},
+		{Name: TelemetryMetricLabelEvent, Value: strings.TrimSpace(string(observation.Type))},
+		{Name: TelemetryMetricLabelFailed, Value: strconv.FormatBool(observation.Failed)},
 	}
-	labels = appendMetricLabel(labels, "error_category", string(observation.ErrorCategory))
-	labels = appendMetricLabel(labels, "model_error_subcategory", string(observation.ModelErrorSubcategory))
-	labels = appendMetricLabel(labels, "tool_name", observation.ToolName)
-	labels = appendMetricLabel(labels, "tool_risk", string(observation.ToolRisk))
-	labels = appendMetricLabel(labels, "provider", observation.ProviderDiagnostics.Provider)
+	labels = appendMetricLabel(labels, TelemetryMetricLabelErrorCategory, string(observation.ErrorCategory))
+	labels = appendMetricLabel(labels, TelemetryMetricLabelModelErrorSubcategory, string(observation.ModelErrorSubcategory))
+	labels = appendMetricLabel(labels, TelemetryMetricLabelToolName, observation.ToolName)
+	labels = appendMetricLabel(labels, TelemetryMetricLabelToolRisk, string(observation.ToolRisk))
+	labels = appendMetricLabel(labels, TelemetryMetricLabelProvider, observation.ProviderDiagnostics.Provider)
 	if observation.ProviderDiagnostics.HTTPStatus > 0 {
-		labels = append(labels, MetricLabel{Name: "http_status", Value: strconv.Itoa(observation.ProviderDiagnostics.HTTPStatus)})
+		labels = append(labels, MetricLabel{Name: TelemetryMetricLabelHTTPStatus, Value: strconv.Itoa(observation.ProviderDiagnostics.HTTPStatus)})
 	}
 	return labels
 }
 
 func metricsToolLifecycleLabels(observation Observation, phase string) []MetricLabel {
 	labels := []MetricLabel{
-		{Name: "event", Value: strings.TrimSpace(string(observation.Type))},
-		{Name: "failed", Value: strconv.FormatBool(observation.Failed)},
+		{Name: TelemetryMetricLabelEvent, Value: strings.TrimSpace(string(observation.Type))},
+		{Name: TelemetryMetricLabelFailed, Value: strconv.FormatBool(observation.Failed)},
 	}
-	labels = appendMetricLabel(labels, "error_category", string(observation.ErrorCategory))
-	labels = appendMetricLabel(labels, "tool_risk", string(observation.ToolRisk))
-	labels = appendMetricLabel(labels, "tool_phase", phase)
+	labels = appendMetricLabel(labels, TelemetryMetricLabelErrorCategory, string(observation.ErrorCategory))
+	labels = appendMetricLabel(labels, TelemetryMetricLabelToolRisk, string(observation.ToolRisk))
+	labels = appendMetricLabel(labels, TelemetryMetricLabelToolPhase, phase)
 	return labels
 }
 

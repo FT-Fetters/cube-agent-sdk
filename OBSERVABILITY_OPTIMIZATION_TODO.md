@@ -76,7 +76,7 @@
 - [x] **20. Add OpenTelemetry integration example.**
   Document or provide an example mapping observations to spans, events, and attributes without making OpenTelemetry a core dependency.
 
-- [ ] **21. Define telemetry attribute naming conventions.**
+- [x] **21. Define telemetry attribute naming conventions.**
   Document stable attribute names for logs, metrics, and traces, such as `agent.id`, `agent.run_id`, `agent.request_id`, and `agent.error.category`.
 
 - [ ] **22. Allow custom request ID generation.**

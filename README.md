@@ -92,7 +92,8 @@ services:
 - `go run ./examples/approval_observer`
 
 The OpenTelemetry example is a separate Go module so tracing dependencies stay
-out of the core SDK module:
+out of the core SDK module. It maps observations to the SDK's stable `agent.*`
+telemetry attributes without adding OpenTelemetry to the core dependency graph:
 
 - `go -C examples/opentelemetry test ./...`
 - `go -C examples/opentelemetry run .`
@@ -157,6 +158,8 @@ The SDK provides:
 - Session snapshot, restore, reset, and fork APIs.
 - Approval policy helpers with tool-name and risk allowlists.
 - Sanitized observations and structured lifecycle events.
+- Stable telemetry attribute and metric label names for logs, metrics, and
+  traces.
 - Structured `AgentError` values and sentinel errors.
 
 Applications provide:

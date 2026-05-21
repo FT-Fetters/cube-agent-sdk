@@ -84,39 +84,47 @@ func TestOTelObserverMapsSafeObservationFields(t *testing.T) {
 	if span.Name() != "cube_agent.tool" {
 		t.Fatalf("span name = %q, want cube_agent.tool", span.Name())
 	}
-	assertSpanStringAttr(t, span, "cube.agent.event", string(agent.EventAfterTool))
-	assertSpanStringAttr(t, span, "cube.agent.id", "agent-1")
-	assertSpanStringAttr(t, span, "cube.agent.run_id", "run-1")
-	assertSpanStringAttr(t, span, "cube.agent.request_id", "tool-request-1")
-	assertSpanStringAttr(t, span, "cube.agent.parent_request_id", "model-request-1")
-	assertSpanStringAttr(t, span, "cube.agent.trace_id", "4bf92f3577b34da6a3ce929d0e0e4736")
-	assertSpanStringAttr(t, span, "cube.agent.span_id", "00f067aa0ba902b7")
-	assertSpanStringAttr(t, span, "cube.agent.trace_state", "vendor=state")
-	assertSpanStringAttr(t, span, "cube.agent.tool.name", "lookup_account")
-	assertSpanStringAttr(t, span, "cube.agent.tool.risk", string(agent.ToolRiskRead))
-	assertSpanStringAttr(t, span, "cube.agent.error_category", string(agent.ErrorCategoryTool))
-	assertSpanStringAttr(t, span, "cube.agent.model_error_subcategory", string(agent.ModelErrorSubcategoryRateLimited))
-	assertSpanIntAttr(t, span, "cube.agent.round", 2)
-	assertSpanIntAttr(t, span, "cube.agent.estimated_tokens", 42)
-	assertSpanIntAttr(t, span, "cube.agent.tokens.input", 11)
-	assertSpanIntAttr(t, span, "cube.agent.tokens.output", 7)
-	assertSpanIntAttr(t, span, "cube.agent.tokens.total", 18)
-	assertSpanFloatAttr(t, span, "cube.agent.duration_ms", 1500)
-	assertSpanFloatAttr(t, span, "cube.agent.tool.timing.validation_ms", 5)
-	assertSpanFloatAttr(t, span, "cube.agent.tool.timing.approval_ms", 10)
-	assertSpanFloatAttr(t, span, "cube.agent.tool.timing.execution_ms", 20)
-	assertSpanFloatAttr(t, span, "cube.agent.stream.time_to_first_token_ms", 25)
-	assertSpanIntAttr(t, span, "cube.agent.stream.delta_count", 3)
-	assertSpanIntAttr(t, span, "cube.agent.stream.byte_count", 24)
-	assertSpanFloatAttr(t, span, "cube.agent.stream.throughput_bytes_per_second", 12.5)
-	assertSpanIntAttr(t, span, "cube.agent.tool.result.content_bytes", 28)
-	assertSpanBoolAttr(t, span, "cube.agent.tool.result.mcp_is_error", true)
-	assertSpanStringSliceAttr(t, span, "cube.agent.tool.result.metadata_keys", []string{"mcpIsError", "row_count"})
-	assertSpanStringAttr(t, span, "cube.agent.provider.name", "openai-compatible")
-	assertSpanIntAttr(t, span, "cube.agent.provider.http_status", 429)
-	assertSpanStringAttr(t, span, "cube.agent.provider.endpoint_host", "api.example.test")
-	assertSpanStringAttr(t, span, "cube.agent.provider.request_id", "provider-request-1")
-	assertSpanBoolAttr(t, span, "cube.agent.failed", true)
+	assertSpanStringAttr(t, span, agent.TelemetryAttrEvent, string(agent.EventAfterTool))
+	assertSpanStringAttr(t, span, agent.TelemetryAttrAgentID, "agent-1")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrRunID, "run-1")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrRequestID, "tool-request-1")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrParentRequestID, "model-request-1")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrTraceID, "4bf92f3577b34da6a3ce929d0e0e4736")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrSpanID, "00f067aa0ba902b7")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrTraceState, "vendor=state")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrToolName, "lookup_account")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrToolRisk, string(agent.ToolRiskRead))
+	assertSpanStringAttr(t, span, agent.TelemetryAttrToolSchemaHash, "tool-schema-hash")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrSkillName, "research")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrErrorCategory, string(agent.ErrorCategoryTool))
+	assertSpanStringAttr(t, span, agent.TelemetryAttrErrorModelSubcategory, string(agent.ModelErrorSubcategoryRateLimited))
+	assertSpanBoolAttr(t, span, agent.TelemetryAttrApprovalApproved, true)
+	assertSpanStringAttr(t, span, agent.TelemetryAttrApprovalReason, "policy allowed read-only tool")
+	assertSpanIntAttr(t, span, agent.TelemetryAttrRound, 2)
+	assertSpanIntAttr(t, span, agent.TelemetryAttrEstimatedTokens, 42)
+	assertSpanIntAttr(t, span, agent.TelemetryAttrTokensInput, 11)
+	assertSpanIntAttr(t, span, agent.TelemetryAttrTokensOutput, 7)
+	assertSpanIntAttr(t, span, agent.TelemetryAttrTokensTotal, 18)
+	assertSpanFloatAttr(t, span, agent.TelemetryAttrDurationMS, 1500)
+	assertSpanFloatAttr(t, span, agent.TelemetryAttrToolTimingValidationMS, 5)
+	assertSpanFloatAttr(t, span, agent.TelemetryAttrToolTimingApprovalMS, 10)
+	assertSpanFloatAttr(t, span, agent.TelemetryAttrToolTimingExecutionMS, 20)
+	assertSpanFloatAttr(t, span, agent.TelemetryAttrStreamTimeToFirstTokenMS, 25)
+	assertSpanIntAttr(t, span, agent.TelemetryAttrStreamDeltaCount, 3)
+	assertSpanIntAttr(t, span, agent.TelemetryAttrStreamByteCount, 24)
+	assertSpanFloatAttr(t, span, agent.TelemetryAttrStreamThroughputBytesPerSec, 12.5)
+	assertSpanIntAttr(t, span, agent.TelemetryAttrToolResultContentBytes, 28)
+	assertSpanBoolAttr(t, span, agent.TelemetryAttrToolResultMCPIsError, true)
+	assertSpanStringSliceAttr(t, span, agent.TelemetryAttrToolResultMetadataKeys, []string{"mcpIsError", "row_count"})
+	assertSpanStringAttr(t, span, agent.TelemetryAttrProviderName, "openai-compatible")
+	assertSpanIntAttr(t, span, agent.TelemetryAttrProviderHTTPStatus, 429)
+	assertSpanStringAttr(t, span, agent.TelemetryAttrProviderEndpointHost, "api.example.test")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrProviderRequestID, "provider-request-1")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrProviderRetryAfter, "2")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrProviderRateLimitLimit, "100")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrProviderRateLimitRemaining, "0")
+	assertSpanStringAttr(t, span, agent.TelemetryAttrProviderRateLimitReset, "123")
+	assertSpanBoolAttr(t, span, agent.TelemetryAttrFailed, true)
 
 	if span.Status().Code.String() != "Error" {
 		t.Fatalf("span status = %s, want Error", span.Status().Code)
@@ -188,7 +196,7 @@ func endedSpanByRequestID(t *testing.T, spans []sdktrace.ReadOnlySpan, requestID
 	t.Helper()
 	for _, span := range spans {
 		for _, attr := range span.Attributes() {
-			if string(attr.Key) == "cube.agent.request_id" && attr.Value.AsString() == requestID {
+			if string(attr.Key) == agent.TelemetryAttrRequestID && attr.Value.AsString() == requestID {
 				return span
 			}
 		}
@@ -204,7 +212,7 @@ func assertObservationEvent(t *testing.T, span sdktrace.ReadOnlySpan, eventType 
 			continue
 		}
 		for _, attr := range event.Attributes {
-			if string(attr.Key) == "cube.agent.event" && attr.Value.AsString() == eventType {
+			if string(attr.Key) == agent.TelemetryAttrEvent && attr.Value.AsString() == eventType {
 				return
 			}
 		}

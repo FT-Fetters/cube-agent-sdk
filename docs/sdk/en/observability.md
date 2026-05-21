@@ -159,6 +159,79 @@ diagnostics. It does not map prompts, message content, tool arguments, tool
 result content, tool result metadata values, raw errors, credentials, full
 provider URLs, or MCP environment values.
 
+## Telemetry Attribute Names
+
+The stable naming surface lives in code as `TelemetryAttr*` constants and
+`StableTelemetryAttributeNames()`. Logs, traces, custom observers, and the
+OpenTelemetry example should prefer the dotted `agent.*` attributes. Existing
+`SlogObserver` snake_case and grouped fields remain as compatibility aliases,
+but new integrations should read the `agent.*` fields. `MetricsObserver` label
+names are also stable, but they intentionally keep the existing snake_case names
+because metric names already carry the agent namespace.
+
+These names are part of the SDK observability contract. Compatible releases may
+add new attributes or labels, but should not remove, rename, or change the
+meaning of an existing name outside a major-version compatibility break.
+
+| Attribute | Signals | Cardinality | Notes |
+| --- | --- | --- | --- |
+| `agent.event` | logs, traces, metrics as `event` | low | SDK event type. |
+| `agent.failed` | logs, traces, metrics as `failed` | low | Boolean failure status. |
+| `agent.id` | logs, traces | high | Agent identifier. |
+| `agent.run_id` | logs, traces | high | Run correlation ID. |
+| `agent.subagent_id` | logs, traces | high | Subagent identifier. |
+| `agent.trace_id` | logs, traces | high | Caller-provided trace ID. |
+| `agent.span_id` | logs, traces | high | Caller-provided span ID. |
+| `agent.trace_state` | logs, traces | high | Caller-provided trace state. |
+| `agent.request_id` | logs, traces | high | Request correlation ID. |
+| `agent.parent_request_id` | logs, traces | high | Parent request correlation ID. |
+| `agent.round` | logs, traces | numeric | Model/tool round number. |
+| `agent.duration_ms` | logs, traces | numeric | Observation duration in milliseconds. |
+| `agent.estimated_tokens` | logs, traces | numeric | SDK request-side estimate. |
+| `agent.tokens.input` | logs, traces | numeric | Provider-reported input tokens. |
+| `agent.tokens.output` | logs, traces | numeric | Provider-reported output tokens. |
+| `agent.tokens.total` | logs, traces | numeric | Provider-reported total tokens. |
+| `agent.stream.time_to_first_token_ms` | logs, traces | numeric | Streaming time to first delta. |
+| `agent.stream.delta_count` | logs, traces | numeric | Streamed delta count. |
+| `agent.stream.byte_count` | logs, traces | numeric | Streamed delta byte count. |
+| `agent.stream.throughput_bytes_per_second` | logs, traces | numeric | Stream throughput. |
+| `agent.tool.name` | logs, traces, metrics as `tool_name` | bounded/high | Registered tool name; keep metric use bounded. |
+| `agent.tool.risk` | logs, traces, metrics as `tool_risk` | low | Tool risk label. |
+| `agent.tool.schema_hash` | logs, traces | high | Safe schema drift identifier. |
+| `agent.tool.timing.validation_ms` | logs, traces | numeric | Tool validation duration. |
+| `agent.tool.timing.approval_ms` | logs, traces | numeric | Approval wait duration. |
+| `agent.tool.timing.execution_ms` | logs, traces | numeric | Tool execution duration. |
+| `agent.tool.result.content_bytes` | logs, traces | numeric | Tool result content byte length. |
+| `agent.tool.result.metadata_keys` | logs, traces | high | Metadata key names only, never values. |
+| `agent.tool.result.mcp_is_error` | logs, traces | low | MCP result error flag. |
+| `agent.skill.name` | logs, traces | high | Activated skill name. |
+| `agent.approval.approved` | logs, traces | low | Approval decision. |
+| `agent.approval.reason` | logs, traces | high | Approval reason text. |
+| `agent.error.category` | logs, traces, metrics as `error_category` | low | Safe error category. |
+| `agent.error.model_subcategory` | logs, traces, metrics as `model_error_subcategory` | low | Safe model error subcategory. |
+| `agent.provider.name` | logs, traces, metrics as `provider` | low | Provider adapter name. |
+| `agent.provider.http_status` | logs, traces, metrics as `http_status` | low | HTTP status code. |
+| `agent.provider.endpoint_host` | logs, traces | high | Host only, never full URL. |
+| `agent.provider.request_id` | logs, traces | high | Provider request ID. |
+| `agent.provider.retry_after` | logs, traces | high | Retry header value. |
+| `agent.provider.rate_limit.limit` | logs, traces | high | Provider rate limit header value. |
+| `agent.provider.rate_limit.remaining` | logs, traces | high | Provider remaining quota header value. |
+| `agent.provider.rate_limit.reset` | logs, traces | high | Provider reset header value. |
+
+`StableTelemetryMetricLabelNames()` returns the built-in metric label names:
+`event`, `failed`, `error_category`, `model_error_subcategory`, `tool_name`,
+`tool_risk`, `provider`, `http_status`, and `tool_phase`. Default metrics omit
+run IDs, request IDs, trace IDs, span IDs, trace state, provider request IDs,
+tool schema hashes, tool result metadata keys, tool result metadata values, and
+MCP environment values. Treat `tool_name` as bounded: it is useful when the tool
+catalog is controlled, but high-cardinality dynamic tool catalogs should avoid
+using it for backend labels.
+
+Do not map prompts, message content, tool arguments, tool result content, tool
+result metadata values, raw errors, credentials, full provider URLs, or MCP
+environment values into logs, metric labels, traces, span events, or baggage.
+`ForbiddenTelemetryFieldNames()` returns this policy list for tests and docs.
+
 ## Sanitized Metadata
 
 Events and observations carry audit fields such as event type, agent ID,
@@ -205,14 +278,15 @@ duration.
 `EventStreamError` observations. Only the first delta is observed; subsequent
 deltas are not emitted as observations.
 
-Observations intentionally omit message content, tool arguments, tool results,
-raw errors, API keys, full provider URLs with query strings, and MCP
-environment values.
+Observations intentionally omit prompts, message content, tool arguments, tool
+result content, tool result metadata values, raw errors, credentials, full
+provider URLs with query strings, and MCP environment values.
 
-`SlogObserver` logs `event` and `failed` on every record. It omits other
-zero-value fields, emits duration as `duration_ms`, and groups token usage, tool
+`SlogObserver` logs `agent.event` and `agent.failed` on every record and keeps
+legacy `event` and `failed` aliases. It omits other zero-value fields, emits
+duration as `agent.duration_ms`, and also keeps legacy grouped token usage, tool
 metadata, `tool.timing`, stream telemetry, approval metadata, and provider
-diagnostics as structured attributes.
+diagnostics for compatibility.
 
 `MetricsObserver` increments `agent_observations_total` for every observation,
 increments `agent_observation_failures_total` for failed observations, and
