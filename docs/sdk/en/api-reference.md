@@ -160,6 +160,7 @@ method-level details while keeping this page as a navigation aid.
 - `DefaultMetricsFailureCounterName`
 - `DefaultMetricsDurationName`
 - `StreamTelemetry`
+- `ToolResultMetadata`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
@@ -169,6 +170,9 @@ method-level details while keeping this page as a navigation aid.
 
 `Event` and `Observation` include `ToolSchemaHash` on tool and approval
 lifecycle records when the registered tool has a parameter schema.
+After-tool observations include `ToolResultMetadata` with result content byte
+size, sorted result metadata key names, and MCP `mcpIsError` status when
+present.
 
 ## Errors
 

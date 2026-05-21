@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -804,8 +805,25 @@ type StreamTelemetry struct {
 	ThroughputBytesPerSecond float64
 }
 
+// ToolResultMetadata contains safe metadata about a tool result. It never
+// includes result content, metadata values, tool arguments, raw errors, or
+// structured MCP content values.
+type ToolResultMetadata struct {
+	// ContentBytes is the byte length of ToolResult.Content.
+	ContentBytes int
+	// MetadataKeys lists ToolResult.Metadata key names in deterministic order.
+	MetadataKeys []string
+	// MCPIsError reports the MCP result error status when mcpIsError is present.
+	MCPIsError *bool
+}
+
+func (m ToolResultMetadata) isZero() bool {
+	return m.ContentBytes == 0 && len(m.MetadataKeys) == 0 && m.MCPIsError == nil
+}
+
 // Observation is a safe telemetry view of an Event. It intentionally omits
-// message content, tool arguments, tool results, raw errors, and MCP settings.
+// message content, tool arguments, tool result content, tool result metadata
+// values, raw errors, and MCP settings.
 type Observation struct {
 	Type       EventType
 	AgentID    string
@@ -832,6 +850,9 @@ type Observation struct {
 	StreamTelemetry StreamTelemetry
 	// ProviderDiagnostics reports safe provider metadata for model failures.
 	ProviderDiagnostics ProviderDiagnostics
+	// ToolResultMetadata reports safe result size, metadata key names, and MCP
+	// error status for after-tool observations.
+	ToolResultMetadata ToolResultMetadata
 	// ModelErrorSubcategory refines ErrorCategoryModel for safe alert grouping.
 	ModelErrorSubcategory ModelErrorSubcategory
 	Approved              bool
@@ -842,6 +863,7 @@ type Observation struct {
 
 // ObservationFromEvent converts a lifecycle event into safe telemetry metadata.
 func ObservationFromEvent(event Event) Observation {
+	toolResultMetadata := toolResultMetadataFromEvent(event)
 	return Observation{
 		Type:                  event.Type,
 		AgentID:               event.AgentID,
@@ -862,12 +884,56 @@ func ObservationFromEvent(event Event) Observation {
 		TokenUsage:            event.TokenUsage,
 		StreamTelemetry:       event.StreamTelemetry,
 		ProviderDiagnostics:   event.ProviderDiagnostics,
+		ToolResultMetadata:    toolResultMetadata,
 		ModelErrorSubcategory: event.ModelErrorSubcategory,
 		Approved:              event.Approved,
 		ApprovalReason:        event.ApprovalReason,
 		ErrorCategory:         event.ErrorCategory,
 		Failed:                event.Error != nil || event.ErrorCategory != "",
 	}
+}
+
+func toolResultMetadataFromEvent(event Event) ToolResultMetadata {
+	if event.Type != EventAfterTool {
+		return ToolResultMetadata{}
+	}
+	return toolResultMetadataFromToolResult(event.ToolResult)
+}
+
+func toolResultMetadataFromToolResult(result ToolResult) ToolResultMetadata {
+	metadata := ToolResultMetadata{
+		ContentBytes: len(result.Content),
+		MetadataKeys: sortedToolResultMetadataKeys(result.Metadata),
+		MCPIsError:   mcpIsErrorFromToolResultMetadata(result.Metadata),
+	}
+	if metadata.isZero() {
+		return ToolResultMetadata{}
+	}
+	return metadata
+}
+
+func sortedToolResultMetadataKeys(metadata map[string]any) []string {
+	if len(metadata) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func mcpIsErrorFromToolResultMetadata(metadata map[string]any) *bool {
+	value, ok := metadata["mcpIsError"]
+	if !ok {
+		return nil
+	}
+	isError, ok := value.(bool)
+	if !ok {
+		return nil
+	}
+	return &isError
 }
 
 // CloneMessages returns a deep copy of a message slice.

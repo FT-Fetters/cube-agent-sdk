@@ -31,8 +31,8 @@ type SlogObserver struct {
 
 // NewSlogObserver returns an Observer backed by Go's standard log/slog package.
 // The observer only logs fields present on Observation and does not log prompts,
-// message content, tool arguments, tool results, raw errors, API keys, full
-// URLs, or MCP environment values.
+// message content, tool arguments, tool result content or metadata values, raw
+// errors, API keys, full URLs, or MCP environment values.
 func NewSlogObserver(options SlogObserverOptions) SlogObserver {
 	message := options.Message
 	if message == "" {
@@ -153,6 +153,21 @@ func toolSlogAttrs(observation Observation) []slog.Attr {
 	attrs = appendSlogString(attrs, "name", observation.ToolName)
 	attrs = appendSlogString(attrs, "risk", string(observation.ToolRisk))
 	attrs = appendSlogString(attrs, "schema_hash", observation.ToolSchemaHash)
+	attrs = append(attrs, toolResultMetadataSlogAttrs(observation.ToolResultMetadata)...)
+	return attrs
+}
+
+func toolResultMetadataSlogAttrs(metadata ToolResultMetadata) []slog.Attr {
+	var attrs []slog.Attr
+	if metadata.ContentBytes > 0 {
+		attrs = append(attrs, slog.Int("result_content_bytes", metadata.ContentBytes))
+	}
+	if len(metadata.MetadataKeys) > 0 {
+		attrs = append(attrs, slog.Any("result_metadata_keys", append([]string(nil), metadata.MetadataKeys...)))
+	}
+	if metadata.MCPIsError != nil {
+		attrs = append(attrs, slog.Bool("mcp_is_error", *metadata.MCPIsError))
+	}
 	return attrs
 }
 

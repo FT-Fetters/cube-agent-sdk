@@ -161,6 +161,51 @@ func TestSlogObserverEmitsStreamTelemetryAttributes(t *testing.T) {
 	assertSlogField(t, stream, "throughput_bytes_per_second", float64(480))
 }
 
+func TestSlogObserverEmitsSafeToolResultMetadataAttributes(t *testing.T) {
+	const (
+		resultContent         = "slog tool result payload"
+		metadataValueSecret   = "slog metadata secret"
+		structuredValueSecret = "slog structured secret"
+	)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
+		ReplaceAttr: dropSlogTime,
+	}))
+	observer := NewSlogObserver(SlogObserverOptions{Logger: logger})
+	observation := ObservationFromEvent(Event{
+		Type:     EventAfterTool,
+		ToolName: "lookup",
+		ToolResult: ToolResult{
+			Content: resultContent,
+			Metadata: map[string]any{
+				"beta":                 metadataValueSecret,
+				"mcpStructuredContent": map[string]any{"token": structuredValueSecret},
+				"mcpIsError":           false,
+				"alpha":                metadataValueSecret,
+			},
+		},
+	})
+	metadata := toolResultMetadataFromObservation(t, observation)
+	if metadata.mcpIsError == nil || *metadata.mcpIsError != false {
+		t.Fatalf("tool result MCP error status = %#v, want false", metadata.mcpIsError)
+	}
+
+	observer.Observe(context.Background(), observation)
+
+	output := buf.String()
+	for _, unsafe := range []string{resultContent, metadataValueSecret, structuredValueSecret} {
+		if strings.Contains(output, unsafe) {
+			t.Fatalf("slog output leaked %q: %s", unsafe, output)
+		}
+	}
+	record := decodeSlogRecord(t, output)
+	tool := assertSlogGroup(t, record, "tool")
+	assertSlogField(t, tool, "name", "lookup")
+	assertSlogField(t, tool, "result_content_bytes", float64(len(resultContent)))
+	assertSlogStringSliceField(t, tool, "result_metadata_keys", []string{"alpha", "beta", "mcpIsError", "mcpStructuredContent"})
+	assertSlogField(t, tool, "mcp_is_error", false)
+}
+
 func TestSlogObserverDoesNotEmitSensitiveEventPayloads(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
@@ -273,5 +318,29 @@ func assertSlogField(t *testing.T, record map[string]any, key string, want any) 
 	}
 	if got != want {
 		t.Fatalf("slog record field %q = %#v, want %#v", key, got, want)
+	}
+}
+
+func assertSlogStringSliceField(t *testing.T, record map[string]any, key string, want []string) {
+	t.Helper()
+	got, ok := record[key]
+	if !ok {
+		t.Fatalf("slog record missing field %q in %#v", key, record)
+	}
+	values, ok := got.([]any)
+	if !ok {
+		t.Fatalf("slog record field %q = %#v, want JSON array", key, got)
+	}
+	if len(values) != len(want) {
+		t.Fatalf("slog record field %q = %#v, want %#v", key, got, want)
+	}
+	for i, value := range values {
+		gotString, ok := value.(string)
+		if !ok {
+			t.Fatalf("slog record field %q[%d] = %#v, want string", key, i, value)
+		}
+		if gotString != want[i] {
+			t.Fatalf("slog record field %q = %#v, want %#v", key, got, want)
+		}
 	}
 }

@@ -73,6 +73,35 @@ func TestMetricsObserverSkipsFailureAndDurationWhenNotApplicable(t *testing.T) {
 	assertMetricCounterCall(t, calls[0], DefaultMetricsEventCounterName, 1, wantLabels)
 }
 
+func TestMetricsObserverDoesNotLabelToolResultMetadata(t *testing.T) {
+	sink := &recordingMetricSink{}
+	observer := NewMetricsObserver(MetricsObserverOptions{Sink: sink})
+	observation := ObservationFromEvent(Event{
+		Type:     EventAfterTool,
+		ToolName: "lookup",
+		ToolResult: ToolResult{
+			Content: "tool result payload",
+			Metadata: map[string]any{
+				"customerID":           "metadata-value-secret",
+				"mcpStructuredContent": map[string]any{"secret": "structured-value-secret"},
+				"mcpIsError":           true,
+			},
+		},
+	})
+	metadata := toolResultMetadataFromObservation(t, observation)
+	if metadata.contentBytes != len("tool result payload") || metadata.mcpIsError == nil || *metadata.mcpIsError != true {
+		t.Fatalf("tool result metadata = %#v, want size and MCP error status", metadata)
+	}
+
+	observer.Observe(context.Background(), observation)
+
+	calls := sink.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("metric calls = %d, want 1: %#v", len(calls), calls)
+	}
+	assertMetricLabelsOmitToolResultMetadata(t, calls)
+}
+
 type recordingMetricSink struct {
 	calls []metricCall
 }
@@ -163,6 +192,33 @@ func assertMetricLabelsOmitHighCardinalityFields(t *testing.T, calls []metricCal
 			}
 			if _, ok := disallowedValues[label.Value]; ok {
 				t.Fatalf("metric labels included high-cardinality label value %q in call %#v", label.Value, call)
+			}
+		}
+	}
+}
+
+func assertMetricLabelsOmitToolResultMetadata(t *testing.T, calls []metricCall) {
+	t.Helper()
+	disallowedNames := map[string]struct{}{
+		"tool_result_content_bytes": {},
+		"tool_result_metadata_keys": {},
+		"result_content_bytes":      {},
+		"result_metadata_keys":      {},
+		"mcp_is_error":              {},
+	}
+	disallowedValues := map[string]struct{}{
+		"customerID":              {},
+		"mcpStructuredContent":    {},
+		"metadata-value-secret":   {},
+		"structured-value-secret": {},
+	}
+	for _, call := range calls {
+		for _, label := range call.labels {
+			if _, ok := disallowedNames[label.Name]; ok {
+				t.Fatalf("metric labels included tool result metadata label name %q in call %#v", label.Name, call)
+			}
+			if _, ok := disallowedValues[label.Value]; ok {
+				t.Fatalf("metric labels included tool result metadata value %q in call %#v", label.Value, call)
 			}
 		}
 	}

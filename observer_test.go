@@ -235,6 +235,113 @@ func TestToolSchemaHashObservationDoesNotLeakArgumentsResultsOrRawSchema(t *test
 	}
 }
 
+func TestToolResultMetadataObservationIncludesSafeSizeSortedKeysAndMCPStatus(t *testing.T) {
+	const (
+		resultContent          = "safe result payload"
+		metadataValueSecret    = "metadata-value-secret"
+		structuredValueSecret  = "structured-content-secret"
+		unstructuredRawMessage = "raw tool result error secret"
+	)
+	observation := ObservationFromEvent(Event{
+		Type: EventAfterTool,
+		ToolResult: ToolResult{
+			Content: resultContent,
+			Metadata: map[string]any{
+				"zeta":                 metadataValueSecret,
+				"mcpStructuredContent": map[string]any{"token": structuredValueSecret},
+				"mcpIsError":           true,
+				"alpha":                []any{metadataValueSecret},
+			},
+		},
+		Error: errors.New(unstructuredRawMessage),
+	})
+
+	metadata := toolResultMetadataFromObservation(t, observation)
+	if metadata.contentBytes != len(resultContent) {
+		t.Fatalf("tool result content bytes = %d, want %d", metadata.contentBytes, len(resultContent))
+	}
+	wantKeys := []string{"alpha", "mcpIsError", "mcpStructuredContent", "zeta"}
+	if !reflect.DeepEqual(metadata.metadataKeys, wantKeys) {
+		t.Fatalf("tool result metadata keys = %#v, want %#v", metadata.metadataKeys, wantKeys)
+	}
+	if metadata.mcpIsError == nil || *metadata.mcpIsError != true {
+		t.Fatalf("tool result MCP error status = %#v, want true", metadata.mcpIsError)
+	}
+	for _, unsafe := range []string{
+		resultContent,
+		metadataValueSecret,
+		structuredValueSecret,
+		unstructuredRawMessage,
+	} {
+		assertObservationDoesNotContain(t, observation, unsafe)
+	}
+}
+
+func TestToolResultMetadataObservationFromToolExecutionDoesNotLeakPayloads(t *testing.T) {
+	ctx := context.Background()
+	const (
+		resultSecret          = "classified-tool-result"
+		metadataValueSecret   = "classified-metadata-value"
+		structuredValueSecret = "classified-structured-content"
+		rawErrorSecret        = "classified-raw-tool-error"
+	)
+	recorder := &recordingObserver{}
+	model := &recordingModel{responses: []ModelResponse{
+		{ToolCalls: []ToolCall{{ID: "call-1", Name: "lookup", Arguments: map[string]any{"query": "safe"}}}},
+	}}
+	bot, err := New(Config{ID: "tool-result-metadata-agent", SystemPrompt: "base"}, model,
+		WithObserver(recorder),
+		WithTools(ToolFunc{
+			ToolName:        "lookup",
+			ToolDescription: "Lookup data",
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				return ToolResult{
+					CallID:  call.ID,
+					Name:    call.Name,
+					Content: resultSecret,
+					Metadata: map[string]any{
+						"safeKey":              metadataValueSecret,
+						"mcpStructuredContent": map[string]any{"secret": structuredValueSecret},
+						"mcpIsError":           false,
+					},
+				}, errors.New(rawErrorSecret)
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = bot.Run(ctx, "run lookup")
+	if err == nil {
+		t.Fatal("Run error = nil, want tool error")
+	}
+
+	observation := firstObservationOfType(t, recorder.Observations(), EventAfterTool)
+	if !observation.Failed || observation.ErrorCategory != ErrorCategoryTool {
+		t.Fatalf("after tool observation = %#v, want failed tool category", observation)
+	}
+	metadata := toolResultMetadataFromObservation(t, observation)
+	if metadata.contentBytes != len(resultSecret) {
+		t.Fatalf("tool result content bytes = %d, want %d", metadata.contentBytes, len(resultSecret))
+	}
+	wantKeys := []string{"mcpIsError", "mcpStructuredContent", "safeKey"}
+	if !reflect.DeepEqual(metadata.metadataKeys, wantKeys) {
+		t.Fatalf("tool result metadata keys = %#v, want %#v", metadata.metadataKeys, wantKeys)
+	}
+	if metadata.mcpIsError == nil || *metadata.mcpIsError != false {
+		t.Fatalf("tool result MCP error status = %#v, want false", metadata.mcpIsError)
+	}
+	for _, unsafe := range []string{
+		resultSecret,
+		metadataValueSecret,
+		structuredValueSecret,
+		rawErrorSecret,
+	} {
+		assertObservationDoesNotContain(t, observation, unsafe)
+	}
+}
+
 func TestObserverReceivesErrorCategoryWithoutInterruptingErrorPath(t *testing.T) {
 	ctx := context.Background()
 	recorder := &recordingObserver{}
@@ -408,11 +515,42 @@ func firstObservationOfType(t *testing.T, observations []Observation, eventType 
 
 func assertObservationDoesNotContain(t *testing.T, observation Observation, secret string) {
 	t.Helper()
-	value := reflect.ValueOf(observation)
-	for i := 0; i < value.NumField(); i++ {
-		field := value.Field(i)
-		if field.Kind() == reflect.String && strings.Contains(field.String(), secret) {
-			t.Fatalf("observation leaked sensitive content in field %s", value.Type().Field(i).Name)
+	assertValueDoesNotContain(t, reflect.ValueOf(observation), secret, "Observation")
+}
+
+func assertValueDoesNotContain(t *testing.T, value reflect.Value, secret string, path string) {
+	t.Helper()
+	if !value.IsValid() {
+		return
+	}
+	for value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface {
+		if value.IsNil() {
+			return
+		}
+		value = value.Elem()
+	}
+	switch value.Kind() {
+	case reflect.String:
+		if strings.Contains(value.String(), secret) {
+			t.Fatalf("observation leaked sensitive content in %s", path)
+		}
+	case reflect.Struct:
+		valueType := value.Type()
+		for i := 0; i < value.NumField(); i++ {
+			fieldInfo := valueType.Field(i)
+			if fieldInfo.PkgPath != "" {
+				continue
+			}
+			assertValueDoesNotContain(t, value.Field(i), secret, path+"."+fieldInfo.Name)
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < value.Len(); i++ {
+			assertValueDoesNotContain(t, value.Index(i), secret, path)
+		}
+	case reflect.Map:
+		for _, key := range value.MapKeys() {
+			assertValueDoesNotContain(t, key, secret, path)
+			assertValueDoesNotContain(t, value.MapIndex(key), secret, path)
 		}
 	}
 }
@@ -515,6 +653,26 @@ func toolSchemaHashFromObservation(t *testing.T, observation Observation) string
 	return stringFieldByName(t, observation, "ToolSchemaHash")
 }
 
+type observedToolResultMetadata struct {
+	contentBytes int
+	metadataKeys []string
+	mcpIsError   *bool
+}
+
+func toolResultMetadataFromObservation(t *testing.T, observation Observation) observedToolResultMetadata {
+	t.Helper()
+	value := reflect.ValueOf(observation)
+	field := value.FieldByName("ToolResultMetadata")
+	if !field.IsValid() {
+		t.Fatal("Observation.ToolResultMetadata field is missing")
+	}
+	return observedToolResultMetadata{
+		contentBytes: intFieldByName(t, field, "ContentBytes"),
+		metadataKeys: stringSliceFieldByName(t, field, "MetadataKeys"),
+		mcpIsError:   optionalBoolFieldByName(t, field, "MCPIsError"),
+	}
+}
+
 func observationWithToolSchemaHash(t *testing.T, observation Observation, hash string) Observation {
 	t.Helper()
 	value := reflect.ValueOf(&observation).Elem()
@@ -529,6 +687,18 @@ func observationWithToolSchemaHash(t *testing.T, observation Observation, hash s
 	return observation
 }
 
+func intFieldByName(t *testing.T, value reflect.Value, name string) int {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("%s.%s field is missing", value.Type(), name)
+	}
+	if field.Kind() != reflect.Int {
+		t.Fatalf("%s.%s kind = %s, want int", value.Type(), name, field.Kind())
+	}
+	return int(field.Int())
+}
+
 func stringFieldByName(t *testing.T, value any, name string) string {
 	t.Helper()
 	reflected := reflect.ValueOf(value)
@@ -540,4 +710,45 @@ func stringFieldByName(t *testing.T, value any, name string) string {
 		t.Fatalf("%T.%s kind = %s, want string", value, name, field.Kind())
 	}
 	return field.String()
+}
+
+func stringSliceFieldByName(t *testing.T, value reflect.Value, name string) []string {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("%s.%s field is missing", value.Type(), name)
+	}
+	if field.Kind() != reflect.Slice || field.Type().Elem().Kind() != reflect.String {
+		t.Fatalf("%s.%s kind = %s, want []string", value.Type(), name, field.Kind())
+	}
+	keys := make([]string, field.Len())
+	for i := 0; i < field.Len(); i++ {
+		keys[i] = field.Index(i).String()
+	}
+	return keys
+}
+
+func optionalBoolFieldByName(t *testing.T, value reflect.Value, name string) *bool {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("%s.%s field is missing", value.Type(), name)
+	}
+	switch field.Kind() {
+	case reflect.Pointer:
+		if field.IsNil() {
+			return nil
+		}
+		if field.Type().Elem().Kind() != reflect.Bool {
+			t.Fatalf("%s.%s kind = %s, want *bool", value.Type(), name, field.Kind())
+		}
+		got := field.Elem().Bool()
+		return &got
+	case reflect.Bool:
+		got := field.Bool()
+		return &got
+	default:
+		t.Fatalf("%s.%s kind = %s, want *bool", value.Type(), name, field.Kind())
+		return nil
+	}
 }

@@ -67,7 +67,7 @@
 - [x] **17. Add tool schema version or hash telemetry.**
   Add a safe schema version or hash for tool observations so schema drift can be diagnosed without exposing arguments.
 
-- [ ] **18. Add safe tool result metadata.**
+- [x] **18. Add safe tool result metadata.**
   Add safe result metadata such as result size, metadata keys, and MCP error status without exposing result content.
 
 - [ ] **19. Split tool lifecycle timing.**

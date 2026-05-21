@@ -160,6 +160,7 @@
 - `DefaultMetricsFailureCounterName`
 - `DefaultMetricsDurationName`
 - `StreamTelemetry`
+- `ToolResultMetadata`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
@@ -169,6 +170,8 @@
 
 当注册工具提供参数 schema 时，工具和审批生命周期的 `Event` 与 `Observation`
 会包含 `ToolSchemaHash`。
+after-tool observations 会包含 `ToolResultMetadata`，其中包括结果内容字节数、
+排序后的结果 metadata key 名称，以及存在时的 MCP `mcpIsError` 状态。
 
 ## 错误
 
