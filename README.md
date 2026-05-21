@@ -520,6 +520,28 @@ bot, err := agent.New(cfg, model,
 )
 ```
 
+Wrap observers with `NewSamplingObserver` when high-volume telemetry should be
+sampled before it reaches a sink:
+
+```go
+sampled := agent.NewSamplingObserver(agent.SamplingObserverOptions{
+	Child:                combined,
+	EventTypes:           []agent.EventType{agent.EventAfterModel, agent.EventAfterTool},
+	Ratio:                0.1,
+	AlwaysSampleFailures: true,
+})
+
+bot, err := agent.New(cfg, model,
+	agent.WithObserver(sampled),
+)
+```
+
+Sampling can filter by event type and failure status, and can keep eligible
+failures regardless of the ratio. A nil child makes the sampling observer a
+no-op. The default sampler is deterministic and uses only sanitized
+`Observation` fields; tests can provide `ObservationSamplerFunc` for explicit
+decisions.
+
 Events and observations carry audit fields such as event type, agent ID,
 run ID, subagent ID, request ID, parent request ID, round, duration, estimated
 tokens, tool name, tool risk, approval result, skill name, and error category.

@@ -99,6 +99,29 @@ combined := agent.Observers(slogObserver, metricsObserver)
 bot, err := agent.New(cfg, model, agent.WithObserver(combined))
 ```
 
+Wrap any observer with `NewSamplingObserver` to reduce observation volume while
+keeping the telemetry surface sanitized:
+
+```go
+sampled := agent.NewSamplingObserver(agent.SamplingObserverOptions{
+	Child:                combined,
+	EventTypes:           []agent.EventType{agent.EventAfterModel, agent.EventAfterTool},
+	FailureStatus:        agent.SampleAllObservations,
+	Ratio:                0.1,
+	AlwaysSampleFailures: true,
+})
+
+bot, err := agent.New(cfg, model, agent.WithObserver(sampled))
+```
+
+`EventTypes` filters by event type when non-empty, `FailureStatus` can limit
+sampling to failed or successful observations, and `Ratio` applies to eligible
+observations. `AlwaysSampleFailures` keeps eligible failed observations even
+when the ratio is low. A nil `Child` makes the sampling observer a no-op. The
+default ratio sampler is deterministic and hashes only sanitized `Observation`
+fields; use `ObservationSampler` or `ObservationSamplerFunc` when tests or
+deployments need caller-controlled decisions.
+
 Nil children are ignored. Observer panics are recovered and ignored, including
 inside fan-out groups, so one child observer cannot prevent later children from
 receiving an observation. Telemetry is best-effort and must not change agent

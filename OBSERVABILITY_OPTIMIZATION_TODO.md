@@ -52,7 +52,7 @@
 - [x] **12. Add observer fan-out composition.**
   Add a way to compose multiple observers while isolating observer panics independently.
 
-- [ ] **13. Add sampling support for observations.**
+- [x] **13. Add sampling support for observations.**
   Provide configurable observation sampling by event type, failure status, or sampling ratio.
 
 - [ ] **14. Add streaming first-token and throughput telemetry.**

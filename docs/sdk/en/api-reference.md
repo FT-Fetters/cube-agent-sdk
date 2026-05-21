@@ -138,6 +138,15 @@ method-level details while keeping this page as a navigation aid.
 - `NoopObserver`
 - `MultiObserver`
 - `Observers`
+- `SamplingObserver`
+- `SamplingObserverOptions`
+- `SamplingFailureStatus`
+- `SampleAllObservations`
+- `SampleFailedObservations`
+- `SampleSuccessfulObservations`
+- `ObservationSampler`
+- `ObservationSamplerFunc`
+- `NewSamplingObserver`
 - `SlogObserver`
 - `SlogObserverOptions`
 - `NewSlogObserver`

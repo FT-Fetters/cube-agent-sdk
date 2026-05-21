@@ -95,6 +95,28 @@ combined := agent.Observers(slogObserver, metricsObserver)
 bot, err := agent.New(cfg, model, agent.WithObserver(combined))
 ```
 
+可以用 `NewSamplingObserver` 包装任意 observer，在保持遥测字段脱敏的同时降低
+observation 数量：
+
+```go
+sampled := agent.NewSamplingObserver(agent.SamplingObserverOptions{
+	Child:                combined,
+	EventTypes:           []agent.EventType{agent.EventAfterModel, agent.EventAfterTool},
+	FailureStatus:        agent.SampleAllObservations,
+	Ratio:                0.1,
+	AlwaysSampleFailures: true,
+})
+
+bot, err := agent.New(cfg, model, agent.WithObserver(sampled))
+```
+
+`EventTypes` 非空时按 event type 过滤，`FailureStatus` 可以只保留失败或成功的
+observations，`Ratio` 会应用到符合条件的 observations。`AlwaysSampleFailures`
+会在 ratio 很低时仍保留符合条件的失败 observations。nil `Child` 会让 sampling
+observer 成为 no-op。默认 ratio sampler 是确定性的，并且只哈希脱敏后的
+`Observation` 字段；如果测试或部署需要调用方控制决策，可以使用
+`ObservationSampler` 或 `ObservationSamplerFunc`。
+
 nil 子 observer 会被忽略。Observer panic 会被 recover 并忽略，包括 fan-out group
 内部的 panic，因此一个子 observer 不会阻止后续子 observer 收到 observation。
 遥测是 best-effort，不能改变 agent 行为。默认 observer 仍是 `NoopObserver`；只有应用通过

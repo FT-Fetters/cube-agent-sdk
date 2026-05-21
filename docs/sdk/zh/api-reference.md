@@ -138,6 +138,15 @@
 - `NoopObserver`
 - `MultiObserver`
 - `Observers`
+- `SamplingObserver`
+- `SamplingObserverOptions`
+- `SamplingFailureStatus`
+- `SampleAllObservations`
+- `SampleFailedObservations`
+- `SampleSuccessfulObservations`
+- `ObservationSampler`
+- `ObservationSamplerFunc`
+- `NewSamplingObserver`
 - `SlogObserver`
 - `SlogObserverOptions`
 - `NewSlogObserver`
