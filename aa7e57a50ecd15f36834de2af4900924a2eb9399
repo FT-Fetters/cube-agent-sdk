@@ -1,0 +1,32 @@
+mcp_stdio_test.go
+  c01c43b2f5a1d0dc 237,242-253
+OBSERVABILITY_OPTIMIZATION_TODO.md
+  c01c43b2f5a1d0dc 88
+redaction_regression_test.go
+  c01c43b2f5a1d0dc 1-550
+examples/opentelemetry/observer_test.go
+  c01c43b2f5a1d0dc 5-6,146-166,218-394,396
+internal/core/types.go
+  c01c43b2f5a1d0dc 8,286,298-321,932
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "aa7e57a50ecd15f36834de2af4900924a2eb9399",
+  "prompts": {
+    "c01c43b2f5a1d0dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4b2c-9a4a-74a1-8899-9a458b908769",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 797,
+      "total_deletions": 7,
+      "accepted_lines": 795,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/00dd3079a68a6ed4bf2d900f6057475956e6c4d0c5c11b79ea04bb6b2ef21926"
+    }
+  }
+}
