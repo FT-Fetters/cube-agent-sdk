@@ -120,6 +120,89 @@ func TestAgentLifecycleEventsCarryAuditFields(t *testing.T) {
 	}
 }
 
+func TestAgentAfterModelObservabilityCarriesRealTokenUsage(t *testing.T) {
+	ctx := context.Background()
+	wantUsage := TokenUsage{InputTokens: 21, OutputTokens: 8, TotalTokens: 29}
+	recorder := &recordingObserver{}
+	model := &recordingModel{responses: []ModelResponse{
+		{Message: Message{Role: RoleAssistant, Content: "ok"}, Usage: wantUsage},
+	}}
+	var events []Event
+	bot, err := New(Config{ID: "usage-agent", SystemPrompt: "base"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		WithObserver(recorder),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := bot.Run(ctx, "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeModel := firstEventOfType(t, events, EventBeforeModel)
+	afterModel := firstEventOfType(t, events, EventAfterModel)
+	if beforeModel.TokenUsage != (TokenUsage{}) {
+		t.Fatalf("before model token usage = %#v, want zero usage", beforeModel.TokenUsage)
+	}
+	if afterModel.TokenUsage != wantUsage {
+		t.Fatalf("after model token usage = %#v, want %#v", afterModel.TokenUsage, wantUsage)
+	}
+	if beforeModel.EstimatedTokens <= 0 || afterModel.EstimatedTokens != beforeModel.EstimatedTokens {
+		t.Fatalf("model estimated tokens = %d/%d, want positive matching estimate", beforeModel.EstimatedTokens, afterModel.EstimatedTokens)
+	}
+
+	afterObservation := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	if afterObservation.TokenUsage != wantUsage {
+		t.Fatalf("after model observation token usage = %#v, want %#v", afterObservation.TokenUsage, wantUsage)
+	}
+	if afterObservation.EstimatedTokens != afterModel.EstimatedTokens {
+		t.Fatalf("after model observation estimated tokens = %d, want %d", afterObservation.EstimatedTokens, afterModel.EstimatedTokens)
+	}
+}
+
+func TestAgentAfterModelObservabilityLeavesUsageZeroWhenUnavailable(t *testing.T) {
+	ctx := context.Background()
+	recorder := &recordingObserver{}
+	model := &recordingModel{responses: []ModelResponse{
+		{Message: Message{Role: RoleAssistant, Content: "ok"}},
+	}}
+	var events []Event
+	bot, err := New(Config{ID: "usage-agent", SystemPrompt: "base"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		WithObserver(recorder),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := bot.Run(ctx, "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	afterModel := firstEventOfType(t, events, EventAfterModel)
+	if afterModel.TokenUsage != (TokenUsage{}) {
+		t.Fatalf("after model token usage = %#v, want zero usage", afterModel.TokenUsage)
+	}
+	if afterModel.EstimatedTokens <= 0 {
+		t.Fatalf("after model estimated tokens = %d, want positive estimate", afterModel.EstimatedTokens)
+	}
+
+	afterObservation := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	if afterObservation.TokenUsage != (TokenUsage{}) {
+		t.Fatalf("after model observation token usage = %#v, want zero usage", afterObservation.TokenUsage)
+	}
+	if afterObservation.EstimatedTokens <= 0 {
+		t.Fatalf("after model observation estimated tokens = %d, want positive estimate", afterObservation.EstimatedTokens)
+	}
+}
+
 func TestAgentLifecycleEventsCarryParentRequestIDs(t *testing.T) {
 	ctx := context.Background()
 	model := &recordingModel{responses: []ModelResponse{

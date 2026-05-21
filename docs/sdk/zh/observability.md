@@ -61,9 +61,14 @@ Observer panic 会被 recover 并忽略。遥测是 best-effort，不能改变 a
 
 事件和 observations 携带 event type、agent ID、run ID、trace ID、span ID、
 trace state、subagent ID、request ID、parent request ID、round、duration、
-estimated tokens、tool name、tool risk、approval result、skill name 和 error
-category 等审计字段。`ParentRequestID` 会把工具和审批事件关联到触发它们的模型请求，
-也会关联同一 run 内的后续模型请求。
+estimated tokens、真实 token usage、tool name、tool risk、approval result、skill
+name 和 error category 等审计字段。`ParentRequestID` 会把工具和审批事件关联到触发
+它们的模型请求，也会关联同一 run 内的后续模型请求。
+
+`EstimatedTokens` 是 SDK 在请求侧估算的 token 数，即使 provider 没有返回 usage
+也会继续填充。`TokenUsage` 则携带非 streaming `EventAfterModel` 及其 observation
+中来自 `ModelResponse.Usage` 的真实 input、output 和 total tokens。如果没有可用的
+usage，`TokenUsage` 字段保持零值。
 
 Observations 有意省略消息内容、工具参数、工具结果、原始错误、API keys 和 MCP
 环境变量。

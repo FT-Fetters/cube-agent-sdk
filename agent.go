@@ -367,6 +367,7 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 			Round:           roundNumber,
 			Duration:        duration,
 			EstimatedTokens: estimatedTokens,
+			TokenUsage:      response.Usage,
 			Message:         response.Message,
 		}); err != nil {
 			return Message{}, err

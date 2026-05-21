@@ -31,7 +31,7 @@
 - [x] **5. Parse provider token usage.**
   Parse token usage from OpenAI-compatible chat completions, OpenAI Responses, and Anthropic Messages provider responses.
 
-- [ ] **6. Surface real token usage in observations.**
+- [x] **6. Surface real token usage in observations.**
   Expose real token usage on observations separately from `EstimatedTokens`, using estimate values only when provider usage is unavailable.
 
 - [ ] **7. Add safe provider diagnostics to model errors.**

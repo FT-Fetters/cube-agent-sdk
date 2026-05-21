@@ -489,13 +489,15 @@ type Event struct {
 	Round           int
 	Duration        time.Duration
 	EstimatedTokens int
-	Approved        bool
-	ApprovalReason  string
-	ErrorCategory   ErrorCategory
-	Message         Message
-	ToolCall        ToolCall
-	ToolResult      ToolResult
-	Error           error
+	// TokenUsage reports provider or custom-model token counts when available.
+	TokenUsage     TokenUsage
+	Approved       bool
+	ApprovalReason string
+	ErrorCategory  ErrorCategory
+	Message        Message
+	ToolCall       ToolCall
+	ToolResult     ToolResult
+	Error          error
 }
 
 // Hook observes or rejects lifecycle events.
@@ -539,10 +541,12 @@ type Observation struct {
 	Round           int
 	Duration        time.Duration
 	EstimatedTokens int
-	Approved        bool
-	ApprovalReason  string
-	ErrorCategory   ErrorCategory
-	Failed          bool
+	// TokenUsage reports sanitized real token counts when a model reports them.
+	TokenUsage     TokenUsage
+	Approved       bool
+	ApprovalReason string
+	ErrorCategory  ErrorCategory
+	Failed         bool
 }
 
 // ObservationFromEvent converts a lifecycle event into safe telemetry metadata.
@@ -563,6 +567,7 @@ func ObservationFromEvent(event Event) Observation {
 		Round:           event.Round,
 		Duration:        event.Duration,
 		EstimatedTokens: event.EstimatedTokens,
+		TokenUsage:      event.TokenUsage,
 		Approved:        event.Approved,
 		ApprovalReason:  event.ApprovalReason,
 		ErrorCategory:   event.ErrorCategory,
