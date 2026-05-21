@@ -1,0 +1,28 @@
+OBSERVABILITY_OPTIMIZATION_TODO.md
+  c01c43b2f5a1d0dc 64
+agent.go
+  c01c43b2f5a1d0dc 441,452-471,523,558,635,671,743,751-752,1093,1095,1098,1133-1142,1147,1156-1162
+agent_test.go
+  c01c43b2f5a1d0dc 1294-1359,1804-1849,1851-1864,2617-2625
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "a4fc1f16d91b2a846754a889e186e7430f2dfe61",
+  "prompts": {
+    "c01c43b2f5a1d0dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4b2c-9a4a-74a1-8899-9a458b908769",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 217,
+      "total_deletions": 29,
+      "accepted_lines": 202,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/3efd348e109977831af54ce28e400e6a4405405584a5bcccba8b59e6cbd372c2"
+    }
+  }
+}
