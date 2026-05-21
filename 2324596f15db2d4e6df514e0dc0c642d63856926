@@ -1,0 +1,59 @@
+docs/sdk/zh/observability.md
+  c01c43b2f5a1d0dc 31,34,48-50
+internal/core/types.go
+  c01c43b2f5a1d0dc 358-368,417-426,464-473,494
+compact.go
+  c01c43b2f5a1d0dc 9,43,56,61,77
+OBSERVABILITY_OPTIMIZATION_TODO.md
+  c01c43b2f5a1d0dc 22
+docs/sdk/zh/errors.md
+  c01c43b2f5a1d0dc 35-37
+observer_test.go
+  c01c43b2f5a1d0dc 107-109,118-120,126-127
+tools.go
+  c01c43b2f5a1d0dc 16,32,34,43,45,53,72,79,90,99,106,117,124,140,164,174,190,195
+agent.go
+  c01c43b2f5a1d0dc 320,325,330,335,348,353,366,388,400,412,415,454,871-880,901,915
+docs/sdk/en/observability.md
+  c01c43b2f5a1d0dc 33,36,51-54
+README.md
+  c01c43b2f5a1d0dc 472,475,488-491,533-534
+docs/sdk/en/errors.md
+  c01c43b2f5a1d0dc 35-37
+agent_test.go
+  c01c43b2f5a1d0dc 19,32-35,58-61,123-148,150-177,562-564,573-617,619-622,2001-2008
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "2324596f15db2d4e6df514e0dc0c642d63856926",
+  "prompts": {
+    "7a4f7aa709516e8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3dcf-a288-75a1-b515-1bed3b367a05",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 327,
+      "overriden_lines": 0
+    },
+    "c01c43b2f5a1d0dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4b2c-9a4a-74a1-8899-9a458b908769",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 251,
+      "total_deletions": 58,
+      "accepted_lines": 246,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/a0d3df31e9dc29dd4695ce622d2cacdcdd9445d8c37ef9fd9bb46119c166b975"
+    }
+  }
+}
