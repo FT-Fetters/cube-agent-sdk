@@ -1,0 +1,46 @@
+compact.go
+  c01c43b2f5a1d0dc 39-44
+docs/sdk/zh/api-reference.md
+  c01c43b2f5a1d0dc 225-227,241-243
+agent_test.go
+  c01c43b2f5a1d0dc 7,384-625,2961-2978
+subagent.go
+  c01c43b2f5a1d0dc 53-57,82,96-98,129-133,146-150,166-170,220-225
+tools.go
+  c01c43b2f5a1d0dc 17-23
+docs/sdk/en/observability.md
+  c01c43b2f5a1d0dc 44-70
+docs/sdk/zh/observability.md
+  c01c43b2f5a1d0dc 42-64
+agent.go
+  c01c43b2f5a1d0dc 37-46,55-85,92-103,243-253,399-404,515-519,561-565,1065,1067-1115
+session.go
+  c01c43b2f5a1d0dc 114,136
+docs/sdk/en/api-reference.md
+  c01c43b2f5a1d0dc 225-227,244-247
+OBSERVABILITY_OPTIMIZATION_TODO.md
+  c01c43b2f5a1d0dc 82
+README.md
+  c01c43b2f5a1d0dc 163-164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "2832a55b72b4c9a9977e725a07f73ff8ebc728c5",
+  "prompts": {
+    "c01c43b2f5a1d0dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4b2c-9a4a-74a1-8899-9a458b908769",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 547,
+      "total_deletions": 56,
+      "accepted_lines": 513,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/01e8c88f36a5a8e1e53a16fa53772ee7519d053de4ebdec4943a227667050e05"
+    }
+  }
+}
