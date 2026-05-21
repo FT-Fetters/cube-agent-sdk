@@ -87,10 +87,19 @@ metricsObserver := agent.NewMetricsObserver(agent.MetricsObserverOptions{
 bot, err := agent.New(cfg, model, agent.WithObserver(metricsObserver))
 ```
 
-Observer panic 会被 recover 并忽略。遥测是 best-effort，不能改变 agent 行为。
-默认 observer 仍是 `NoopObserver`；只有应用通过 `WithObserver` 挂载
-`SlogObserver` 时才会输出 slog 日志；只有应用挂载带 sink 的 `MetricsObserver`
-时才会输出指标。
+可以使用 `Observers` 或 `MultiObserver` 把脱敏 observations 分发给多个 observer：
+
+```go
+combined := agent.Observers(slogObserver, metricsObserver)
+
+bot, err := agent.New(cfg, model, agent.WithObserver(combined))
+```
+
+nil 子 observer 会被忽略。Observer panic 会被 recover 并忽略，包括 fan-out group
+内部的 panic，因此一个子 observer 不会阻止后续子 observer 收到 observation。
+遥测是 best-effort，不能改变 agent 行为。默认 observer 仍是 `NoopObserver`；只有应用通过
+`WithObserver` 挂载 `SlogObserver` 时才会输出 slog 日志；只有应用挂载带 sink 的
+`MetricsObserver` 时才会输出指标。
 
 ## 脱敏元数据
 

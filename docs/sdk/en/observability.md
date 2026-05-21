@@ -90,11 +90,21 @@ metricsObserver := agent.NewMetricsObserver(agent.MetricsObserverOptions{
 bot, err := agent.New(cfg, model, agent.WithObserver(metricsObserver))
 ```
 
-Observer panics are recovered and ignored. Telemetry is best-effort and must not
-change agent behavior. `NoopObserver` remains the default; slog output is only
-emitted when the application installs `SlogObserver` with `WithObserver`, and
-metrics are only emitted when the application installs `MetricsObserver` with a
-sink.
+Use `Observers` or `MultiObserver` to fan out sanitized observations to more
+than one observer:
+
+```go
+combined := agent.Observers(slogObserver, metricsObserver)
+
+bot, err := agent.New(cfg, model, agent.WithObserver(combined))
+```
+
+Nil children are ignored. Observer panics are recovered and ignored, including
+inside fan-out groups, so one child observer cannot prevent later children from
+receiving an observation. Telemetry is best-effort and must not change agent
+behavior. `NoopObserver` remains the default; slog output is only emitted when
+the application installs `SlogObserver` with `WithObserver`, and metrics are
+only emitted when the application installs `MetricsObserver` with a sink.
 
 ## Sanitized Metadata
 

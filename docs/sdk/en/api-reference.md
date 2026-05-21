@@ -136,6 +136,8 @@ method-level details while keeping this page as a navigation aid.
 - `Observer`
 - `ObserverFunc`
 - `NoopObserver`
+- `MultiObserver`
+- `Observers`
 - `SlogObserver`
 - `SlogObserverOptions`
 - `NewSlogObserver`

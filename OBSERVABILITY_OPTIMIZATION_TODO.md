@@ -49,7 +49,7 @@
 - [x] **11. Add a lightweight metrics observer interface or example.**
   Provide a metrics integration path for counters and latency histograms without forcing a Prometheus dependency.
 
-- [ ] **12. Add observer fan-out composition.**
+- [x] **12. Add observer fan-out composition.**
   Add a way to compose multiple observers while isolating observer panics independently.
 
 - [ ] **13. Add sampling support for observations.**

@@ -186,6 +186,106 @@ func TestObserverPanicDoesNotInterruptRun(t *testing.T) {
 	}
 }
 
+func TestObserversFanOutToEachChild(t *testing.T) {
+	ctx := context.Background()
+	first := &recordingObserver{}
+	second := &recordingObserver{}
+	observation := Observation{
+		Type:            EventAfterModel,
+		AgentID:         "fanout-agent",
+		RunID:           "run-1",
+		RequestID:       "request-1",
+		Round:           2,
+		EstimatedTokens: 12,
+	}
+
+	Observers(first, second).Observe(ctx, observation)
+
+	for name, recorder := range map[string]*recordingObserver{
+		"first":  first,
+		"second": second,
+	} {
+		observations := recorder.Observations()
+		if !reflect.DeepEqual(observations, []Observation{observation}) {
+			t.Fatalf("%s observations = %#v, want %#v", name, observations, []Observation{observation})
+		}
+	}
+}
+
+func TestObserversIgnoreNilChildren(t *testing.T) {
+	ctx := context.Background()
+	recorder := &recordingObserver{}
+	var nilObserver Observer
+	observation := Observation{Type: EventBeforeModel, AgentID: "nil-child-agent"}
+
+	Observers(nil, nilObserver, recorder, nil).Observe(ctx, observation)
+	MultiObserver{nil, recorder, nilObserver}.Observe(ctx, observation)
+
+	observations := recorder.Observations()
+	if !reflect.DeepEqual(observations, []Observation{observation, observation}) {
+		t.Fatalf("observations = %#v, want two delivered observations", observations)
+	}
+}
+
+func TestObserversIsolateChildPanics(t *testing.T) {
+	ctx := context.Background()
+	first := &recordingObserver{}
+	second := &recordingObserver{}
+	observation := Observation{Type: EventAfterTool, AgentID: "panic-child-agent", ToolName: "echo"}
+
+	Observers(
+		first,
+		ObserverFunc(func(context.Context, Observation) {
+			panic("child observer failed")
+		}),
+		second,
+	).Observe(ctx, observation)
+
+	if !reflect.DeepEqual(first.Observations(), []Observation{observation}) {
+		t.Fatalf("first observations = %#v, want observation", first.Observations())
+	}
+	if !reflect.DeepEqual(second.Observations(), []Observation{observation}) {
+		t.Fatalf("second observations = %#v, want observation after panic", second.Observations())
+	}
+}
+
+func TestObserversWithObserverReceivesSanitizedObservations(t *testing.T) {
+	ctx := context.Background()
+	const secret = "fanout-secret-content"
+	first := &recordingObserver{}
+	second := &recordingObserver{}
+	model := &recordingModel{responses: []ModelResponse{
+		{Message: Message{Role: RoleAssistant, Content: secret}},
+	}}
+	bot, err := New(Config{ID: "fanout-with-observer-agent", SystemPrompt: secret}, model,
+		WithObserver(Observers(first, second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := bot.Run(ctx, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Content != secret {
+		t.Fatalf("response content = %q, want model content", response.Content)
+	}
+
+	for name, recorder := range map[string]*recordingObserver{
+		"first":  first,
+		"second": second,
+	} {
+		observations := recorder.Observations()
+		if len(observations) == 0 {
+			t.Fatalf("%s observer did not receive observations", name)
+		}
+		for _, observation := range observations {
+			assertObservationDoesNotContain(t, observation, secret)
+		}
+	}
+}
+
 type recordingObserver struct {
 	observations []Observation
 }

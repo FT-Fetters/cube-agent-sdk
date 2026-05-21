@@ -509,6 +509,17 @@ bot, err := agent.New(cfg, model,
 )
 ```
 
+To send the same sanitized observation to multiple sinks, compose observers with
+`agent.Observers`:
+
+```go
+combined := agent.Observers(slogObserver, metricsObserver)
+
+bot, err := agent.New(cfg, model,
+	agent.WithObserver(combined),
+)
+```
+
 Events and observations carry audit fields such as event type, agent ID,
 run ID, subagent ID, request ID, parent request ID, round, duration, estimated
 tokens, tool name, tool risk, approval result, skill name, and error category.
@@ -524,6 +535,8 @@ positive durations, using only low-cardinality labels derived from sanitized
 observations.
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.
+Nil child observers in a composed observer are ignored, and observer panics are
+recovered so telemetry cannot alter agent execution.
 
 ## Error Handling
 
