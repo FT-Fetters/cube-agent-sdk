@@ -195,6 +195,43 @@ func TestAnthropicMessagesModelParsesToolUse(t *testing.T) {
 	}
 }
 
+func TestAnthropicMessagesModelParsesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{
+			"id": "msg_1",
+			"type": "message",
+			"role": "assistant",
+			"content": [{"type": "text", "text": "Done"}],
+			"usage": {
+				"input_tokens": 17,
+				"output_tokens": 9
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := model.Generate(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Message.Content != "Done" {
+		t.Fatalf("content = %q, want Done", response.Message.Content)
+	}
+	want := TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26}
+	if response.Usage != want {
+		t.Fatalf("usage = %#v, want %#v", response.Usage, want)
+	}
+}
+
 func TestAnthropicMessagesModelReturnsNon2xxErrorWithoutLeakingKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("x-api-key"); got != "test-key" {

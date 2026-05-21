@@ -167,6 +167,13 @@ type anthropicContentBlock struct {
 
 type anthropicMessagesResponse struct {
 	Content []anthropicContentBlock `json:"content"`
+	Usage   anthropicMessagesUsage  `json:"usage"`
+}
+
+type anthropicMessagesUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
 }
 
 func newAnthropicMessagesRequest(model string, maxTokens int, request ModelRequest) (anthropicMessagesRequest, error) {
@@ -278,7 +285,19 @@ func (r anthropicMessagesResponse) modelResponse() (ModelResponse, error) {
 		Content:   strings.Join(textParts, ""),
 		ToolCalls: core.CloneToolCalls(toolCalls),
 	}
-	return ModelResponse{Message: message, ToolCalls: toolCalls}, nil
+	return ModelResponse{Message: message, ToolCalls: toolCalls, Usage: r.Usage.tokenUsage()}, nil
+}
+
+func (u anthropicMessagesUsage) tokenUsage() core.TokenUsage {
+	totalTokens := u.TotalTokens
+	if totalTokens == 0 && (u.InputTokens != 0 || u.OutputTokens != 0) {
+		totalTokens = u.InputTokens + u.OutputTokens
+	}
+	return core.TokenUsage{
+		InputTokens:  u.InputTokens,
+		OutputTokens: u.OutputTokens,
+		TotalTokens:  totalTokens,
+	}
 }
 
 func anthropicMessagesEndpoint(rawBaseURL string) (string, error) {

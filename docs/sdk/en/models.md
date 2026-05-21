@@ -61,6 +61,8 @@ model, err := agent.NewOpenAICompatibleModel(agent.OpenAICompatibleConfig{
 
 `BaseURL` may be a provider root or a full `/chat/completions` URL. The adapter
 maps SDK messages, tools, and tool calls to the chat completions wire format.
+When the provider returns `usage.prompt_tokens`, `usage.completion_tokens`, and
+`usage.total_tokens`, the adapter maps them to `ModelResponse.Usage`.
 
 ## OpenAI Responses API
 
@@ -81,6 +83,8 @@ model, err := agent.NewOpenAIResponsesModel(agent.OpenAIResponsesConfig{
 adapter maps the SDK system prompt to `instructions`, tools to Responses
 function tools, tool results to `function_call_output`, and preserves raw
 Responses output metadata on assistant messages for multi-round tool loops.
+When the response includes token usage, the adapter maps common input, output,
+and total token fields to `ModelResponse.Usage`.
 
 ## Anthropic Messages
 
@@ -99,7 +103,10 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 
 `BaseURL` may be a provider root, a `/v1` URL, or a full `/v1/messages` URL.
 If `AnthropicVersion` is empty, the adapter uses `2023-06-01`. If `MaxTokens`
-is empty, the adapter uses its default maximum.
+is empty, the adapter uses its default maximum. When Anthropic returns
+`usage.input_tokens` and `usage.output_tokens`, the adapter maps them to
+`ModelResponse.Usage` and derives the total when the provider does not report
+one.
 
 ## Custom Models
 

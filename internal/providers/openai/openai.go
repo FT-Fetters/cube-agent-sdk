@@ -152,6 +152,7 @@ type openAIChatToolFunction struct {
 
 type openAIChatCompletionResponse struct {
 	Choices []openAIChatCompletionChoice `json:"choices"`
+	Usage   openAIChatCompletionUsage    `json:"usage"`
 }
 
 type openAIChatCompletionChoice struct {
@@ -162,6 +163,12 @@ type openAIChatCompletionResponseMessage struct {
 	Role      string               `json:"role"`
 	Content   *string              `json:"content"`
 	ToolCalls []openAIChatToolCall `json:"tool_calls"`
+}
+
+type openAIChatCompletionUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 func newOpenAIChatCompletionRequest(model string, request ModelRequest) (openAIChatCompletionRequest, error) {
@@ -278,7 +285,16 @@ func (r openAIChatCompletionResponse) modelResponse() (ModelResponse, error) {
 	return ModelResponse{
 		Message:   assistantMessage,
 		ToolCalls: toolCalls,
+		Usage:     r.Usage.tokenUsage(),
 	}, nil
+}
+
+func (u openAIChatCompletionUsage) tokenUsage() core.TokenUsage {
+	return core.TokenUsage{
+		InputTokens:  u.PromptTokens,
+		OutputTokens: u.CompletionTokens,
+		TotalTokens:  u.TotalTokens,
+	}
 }
 
 func openAIParseToolCallArguments(raw string, name string, id string) (map[string]any, error) {

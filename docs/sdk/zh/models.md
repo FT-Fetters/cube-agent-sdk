@@ -59,7 +59,8 @@ model, err := agent.NewOpenAICompatibleModel(agent.OpenAICompatibleConfig{
 
 `BaseURL` 可以是 provider root，也可以是完整的 `/chat/completions` URL。该
 适配器会把 SDK messages、tools 和 tool calls 映射到 chat completions wire
-format。
+format。当 provider 返回 `usage.prompt_tokens`、`usage.completion_tokens`
+和 `usage.total_tokens` 时，适配器会映射到 `ModelResponse.Usage`。
 
 ## OpenAI Responses API
 
@@ -80,7 +81,9 @@ model, err := agent.NewOpenAIResponsesModel(agent.OpenAIResponsesConfig{
 `BaseURL` 可以是 API root、`/v1` URL，或完整的 `/v1/responses` URL。该适配器
 把 SDK system prompt 映射到 `instructions`，把 tools 映射为 Responses
 function tools，把 tool results 映射为 `function_call_output`，并在 assistant
-消息上保留原始 Responses output 元数据，支持多轮工具循环。
+消息上保留原始 Responses output 元数据，支持多轮工具循环。当响应包含 token
+usage 时，适配器会把常见的 input、output 和 total token 字段映射到
+`ModelResponse.Usage`。
 
 ## Anthropic Messages
 
@@ -99,7 +102,9 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 
 `BaseURL` 可以是 provider root、`/v1` URL，或完整的 `/v1/messages` URL。如果
 `AnthropicVersion` 为空，适配器使用 `2023-06-01`。如果 `MaxTokens` 为空，适配器
-使用自己的默认上限。
+使用自己的默认上限。当 Anthropic 返回 `usage.input_tokens` 和
+`usage.output_tokens` 时，适配器会映射到 `ModelResponse.Usage`；如果 provider
+没有报告 total，则由 input 和 output 相加得到。
 
 ## 自定义模型
 

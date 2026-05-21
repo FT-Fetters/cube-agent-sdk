@@ -28,7 +28,7 @@
 - [x] **4. Add model usage to responses.**
   Extend `ModelResponse` with usage fields for input, output, and total tokens while preserving estimated tokens as a fallback.
 
-- [ ] **5. Parse provider token usage.**
+- [x] **5. Parse provider token usage.**
   Parse token usage from OpenAI-compatible chat completions, OpenAI Responses, and Anthropic Messages provider responses.
 
 - [ ] **6. Surface real token usage in observations.**

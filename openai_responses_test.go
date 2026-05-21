@@ -222,6 +222,42 @@ func TestOpenAIResponsesModelParsesToolCallsAndReplaysRawOutput(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesModelParsesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{
+			"output": [
+				{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Done"}]}
+			],
+			"usage": {
+				"input_tokens": 13,
+				"output_tokens": 5,
+				"total_tokens": 18
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAIResponsesModel(OpenAIResponsesConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := model.Generate(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Message.Content != "Done" {
+		t.Fatalf("content = %q, want Done", response.Message.Content)
+	}
+	want := TokenUsage{InputTokens: 13, OutputTokens: 5, TotalTokens: 18}
+	if response.Usage != want {
+		t.Fatalf("usage = %#v, want %#v", response.Usage, want)
+	}
+}
+
 func TestOpenAIResponsesModelRejectsEmptyOrInvalidToolCallArguments(t *testing.T) {
 	tests := []struct {
 		name      string

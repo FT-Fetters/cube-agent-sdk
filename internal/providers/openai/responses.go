@@ -152,8 +152,9 @@ type openAIResponsesTool struct {
 }
 
 type openAIResponsesResponse struct {
-	Output     []json.RawMessage `json:"output"`
-	OutputText string            `json:"output_text,omitempty"`
+	Output     []json.RawMessage    `json:"output"`
+	OutputText string               `json:"output_text,omitempty"`
+	Usage      openAIResponsesUsage `json:"usage"`
 }
 
 type openAIResponsesOutputItem struct {
@@ -168,6 +169,14 @@ type openAIResponsesOutputItem struct {
 type openAIResponsesOutputContentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+}
+
+type openAIResponsesUsage struct {
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
 }
 
 func newOpenAIResponsesRequest(model string, maxTokens int, store *bool, request ModelRequest) (openAIResponsesRequest, error) {
@@ -367,7 +376,24 @@ func (r openAIResponsesResponse) modelResponse() (ModelResponse, error) {
 	return ModelResponse{
 		Message:   assistantMessage,
 		ToolCalls: toolCalls,
+		Usage:     r.Usage.tokenUsage(),
 	}, nil
+}
+
+func (u openAIResponsesUsage) tokenUsage() core.TokenUsage {
+	inputTokens := u.InputTokens
+	if inputTokens == 0 {
+		inputTokens = u.PromptTokens
+	}
+	outputTokens := u.OutputTokens
+	if outputTokens == 0 {
+		outputTokens = u.CompletionTokens
+	}
+	return core.TokenUsage{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  u.TotalTokens,
+	}
 }
 
 func openAIResponsesEndpoint(rawBaseURL string) (string, error) {

@@ -205,6 +205,40 @@ func TestOpenAICompatibleModelParsesToolCalls(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleModelParsesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{
+			"choices": [{"message": {"role": "assistant", "content": "Done"}}],
+			"usage": {
+				"prompt_tokens": 11,
+				"completion_tokens": 7,
+				"total_tokens": 18
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAICompatibleModel(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := model.Generate(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Message.Content != "Done" {
+		t.Fatalf("content = %q, want Done", response.Message.Content)
+	}
+	want := TokenUsage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18}
+	if response.Usage != want {
+		t.Fatalf("usage = %#v, want %#v", response.Usage, want)
+	}
+}
+
 func TestOpenAICompatibleModelRejectsEmptyOrInvalidToolCallArguments(t *testing.T) {
 	tests := []struct {
 		name      string
