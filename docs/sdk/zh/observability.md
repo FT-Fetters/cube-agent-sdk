@@ -127,21 +127,26 @@ nil 子 observer 会被忽略。Observer panic 会被 recover 并忽略，包括
 
 事件和 observations 携带 event type、agent ID、run ID、trace ID、span ID、
 trace state、subagent ID、request ID、parent request ID、round、duration、
-estimated tokens、真实 token usage、tool name、tool risk、approval result、skill
-name、error category、model error subcategory，以及模型失败时的安全 provider
-diagnostics 等审计字段。`ParentRequestID` 会把工具和审批事件关联到触发它们的模型请求，也会关联同一 run 内的后续模型请求。
+estimated tokens、真实 token usage、streaming telemetry、tool name、tool risk、
+approval result、skill name、error category、model error subcategory，以及模型失败时的安全
+provider diagnostics 等审计字段。`ParentRequestID` 会把工具和审批事件关联到触发它们的模型请求，也会关联同一 run 内的后续模型请求。
 
 `EstimatedTokens` 是 SDK 在请求侧估算的 token 数，即使 provider 没有返回 usage
 也会继续填充。`TokenUsage` 则携带非 streaming `EventAfterModel` 及其 observation
 中来自 `ModelResponse.Usage` 的真实 input、output 和 total tokens。如果没有可用的
 usage，`TokenUsage` 字段保持零值。
 
+对于 streaming `EventAfterModel` 记录，`Duration` 表示整个 stream 的持续时间。
+`StreamTelemetry` 会在至少收到一个 delta 时携带 time to first token、delta 数量、
+streamed delta 字节数和 bytes-per-second 吞吐量。如果 stream 在第一个 delta 之前失败，
+time to first token 和 stream 计数字段会保持零值，而 `Duration` 仍会记录失败 stream 的持续时间。
+
 Observations 有意省略消息内容、工具参数、工具结果、原始错误、API keys、带
 query string 的完整 provider URL 和 MCP 环境变量。
 
 `SlogObserver` 每条记录都会输出 `event` 和 `failed`。其他零值字段会被省略；
-duration 以 `duration_ms` 输出；token usage、工具元数据、审批元数据和 provider
-diagnostics 会作为结构化 group 输出。
+duration 以 `duration_ms` 输出；token usage、stream telemetry、工具元数据、审批元数据和
+provider diagnostics 会作为结构化 group 输出。
 
 `MetricsObserver` 会为每条 observation 递增 `agent_observations_total`，为失败
 observation 递增 `agent_observation_failures_total`，并把正数 duration 记录到

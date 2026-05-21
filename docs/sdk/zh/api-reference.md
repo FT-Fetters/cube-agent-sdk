@@ -158,6 +158,7 @@
 - `DefaultMetricsEventCounterName`
 - `DefaultMetricsFailureCounterName`
 - `DefaultMetricsDurationName`
+- `StreamTelemetry`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`

@@ -544,14 +544,19 @@ decisions.
 
 Events and observations carry audit fields such as event type, agent ID,
 run ID, subagent ID, request ID, parent request ID, round, duration, estimated
-tokens, tool name, tool risk, approval result, skill name, and error category.
-`ParentRequestID` links tool and approval events to the model request that
-caused them, and links follow-up model requests within the same run. Pass
+tokens, stream telemetry, tool name, tool risk, approval result, skill name, and
+error category. `ParentRequestID` links tool and approval events to the model
+request that caused them, and links follow-up model requests within the same run. Pass
 `agent.WithRunID("trace-123")` to correlate SDK telemetry with an application
 trace for one `Run` or `RunStream`; otherwise the SDK generates a run ID.
+For streaming model calls, final `EventAfterModel` records use `Duration` for
+total stream duration and `StreamTelemetry` for time to first token, delta
+count, streamed delta bytes, and throughput. Streams that fail before the first
+delta keep first-token latency and stream counters at zero.
 `SlogObserver` always logs `event` and `failed`, and omits other zero-value
-attributes. Duration is emitted as `duration_ms`; token usage, tool metadata,
-approval metadata, and provider diagnostics are emitted as structured groups.
+attributes. Duration is emitted as `duration_ms`; token usage, stream telemetry,
+tool metadata, approval metadata, and provider diagnostics are emitted as
+structured groups.
 `MetricsObserver` emits event and failure counters, plus duration recordings for
 positive durations, using only low-cardinality labels derived from sanitized
 observations.

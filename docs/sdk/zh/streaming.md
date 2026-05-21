@@ -33,6 +33,11 @@ for event := range events {
 SDK 只会在 done event 到达后提交最终 assistant 消息。中断的 delta stream 不会
 持久化部分 assistant 文本。
 
+最终的 streaming `EventAfterModel` event 和 observation 会通过 `Duration` 携带整个
+stream 的持续时间。只要至少收到一个 delta，它们还会包含脱敏的 `StreamTelemetry`：
+time to first token、delta 数量、streamed delta 字节数和吞吐量。Stream telemetry
+不会包含 streamed text。
+
 ## 当前限制
 
 流式 tool calls 还不会被执行。如果流式模型发出 tool calls，SDK 会报告

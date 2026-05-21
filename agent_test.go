@@ -1325,6 +1325,121 @@ func TestAgentRunStreamEmitsErrorEventAndSkipsIncompleteAssistantMessage(t *test
 	}
 }
 
+func TestAgentRunStreamObservabilityCarriesStreamTelemetryOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "hel"},
+		{Type: StreamEventDelta, Delta: "lo"},
+		{Type: StreamEventDone},
+	}}
+	recorder := &recordingObserver{}
+	var events []Event
+	agent, err := New(Config{ID: "stream-agent"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		WithObserver(recorder),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 3 {
+		t.Fatalf("stream events = %#v, want delta, delta, done", got)
+	}
+
+	afterModel := firstEventOfType(t, events, EventAfterModel)
+	assertStreamTelemetry(t, afterModel.StreamTelemetry, 2, len("hello"), true)
+	afterObservation := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	assertStreamTelemetry(t, afterObservation.StreamTelemetry, 2, len("hello"), true)
+	assertObservationDoesNotContain(t, afterObservation, "hello")
+}
+
+func TestAgentRunStreamObservabilityCarriesStreamTelemetryOnErrorAfterDeltas(t *testing.T) {
+	ctx := context.Background()
+	streamErr := errors.New("stream interrupted")
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "partial"},
+		{Type: StreamEventError, Error: streamErr},
+	}}
+	recorder := &recordingObserver{}
+	var events []Event
+	agent, err := New(Config{ID: "stream-agent"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		WithObserver(recorder),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 2 || got[1].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want delta then error", got)
+	}
+
+	afterModel := firstEventOfType(t, events, EventAfterModel)
+	assertStreamTelemetry(t, afterModel.StreamTelemetry, 1, len("partial"), true)
+	afterObservation := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	if !afterObservation.Failed {
+		t.Fatalf("after model observation failed = false, want true")
+	}
+	assertStreamTelemetry(t, afterObservation.StreamTelemetry, 1, len("partial"), true)
+	assertObservationDoesNotContain(t, afterObservation, "partial")
+}
+
+func TestAgentRunStreamObservabilityLeavesFirstTokenZeroOnErrorBeforeDeltas(t *testing.T) {
+	ctx := context.Background()
+	streamErr := errors.New("stream interrupted")
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventError, Error: streamErr},
+	}}
+	recorder := &recordingObserver{}
+	var events []Event
+	agent, err := New(Config{ID: "stream-agent"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		WithObserver(recorder),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 1 || got[0].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want one error event", got)
+	}
+
+	afterModel := firstEventOfType(t, events, EventAfterModel)
+	if afterModel.Duration <= 0 {
+		t.Fatalf("after model duration = %s, want positive duration", afterModel.Duration)
+	}
+	assertZeroStreamTelemetry(t, afterModel.StreamTelemetry)
+	afterObservation := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	if afterObservation.Duration <= 0 {
+		t.Fatalf("after model observation duration = %s, want positive duration", afterObservation.Duration)
+	}
+	assertZeroStreamTelemetry(t, afterObservation.StreamTelemetry)
+}
+
 func TestAgentRunStreamCarriesRunIDInObservationsAndErrors(t *testing.T) {
 	ctx := context.Background()
 	streamErr := errors.New("stream interrupted")
@@ -2245,6 +2360,33 @@ func firstEventOfTypeAndRound(t *testing.T, events []Event, eventType EventType,
 	}
 	t.Fatalf("events = %#v, want %s in round %d", events, eventType, round)
 	return Event{}
+}
+
+func assertStreamTelemetry(t *testing.T, telemetry StreamTelemetry, deltaCount int, byteCount int, wantFirstToken bool) {
+	t.Helper()
+	if got := telemetry.DeltaCount; got != deltaCount {
+		t.Fatalf("stream telemetry delta count = %d, want %d", got, deltaCount)
+	}
+	if got := telemetry.ByteCount; got != byteCount {
+		t.Fatalf("stream telemetry byte count = %d, want %d", got, byteCount)
+	}
+	if wantFirstToken && telemetry.TimeToFirstToken <= 0 {
+		t.Fatalf("stream telemetry time to first token = %s, want positive duration", telemetry.TimeToFirstToken)
+	}
+	if !wantFirstToken && telemetry.TimeToFirstToken != 0 {
+		t.Fatalf("stream telemetry time to first token = %s, want zero duration", telemetry.TimeToFirstToken)
+	}
+	if byteCount > 0 && telemetry.ThroughputBytesPerSecond <= 0 {
+		t.Fatalf("stream telemetry throughput = %f, want positive throughput", telemetry.ThroughputBytesPerSecond)
+	}
+	if byteCount == 0 && telemetry.ThroughputBytesPerSecond != 0 {
+		t.Fatalf("stream telemetry throughput = %f, want zero throughput", telemetry.ThroughputBytesPerSecond)
+	}
+}
+
+func assertZeroStreamTelemetry(t *testing.T, telemetry StreamTelemetry) {
+	t.Helper()
+	assertStreamTelemetry(t, telemetry, 0, 0, false)
 }
 
 func assertEventTraceContext(t *testing.T, event Event, trace TraceContext) {

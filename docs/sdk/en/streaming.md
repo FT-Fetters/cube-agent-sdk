@@ -33,6 +33,12 @@ for event := range events {
 The SDK commits the final assistant message only after a done event. Interrupted
 delta streams do not persist partial assistant text.
 
+Final streaming `EventAfterModel` events and observations include total stream
+duration through `Duration`. When at least one delta is received, they also
+include sanitized `StreamTelemetry` with time to first token, delta count,
+streamed delta byte count, and throughput. Stream telemetry never contains the
+streamed text.
+
 ## Current Limitations
 
 Streamed tool calls are not executed yet. If a streaming model emits tool calls,

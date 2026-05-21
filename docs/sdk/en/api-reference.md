@@ -158,6 +158,7 @@ method-level details while keeping this page as a navigation aid.
 - `DefaultMetricsEventCounterName`
 - `DefaultMetricsFailureCounterName`
 - `DefaultMetricsDurationName`
+- `StreamTelemetry`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`

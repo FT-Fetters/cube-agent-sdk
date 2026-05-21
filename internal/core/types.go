@@ -749,6 +749,7 @@ type Event struct {
 	EstimatedTokens int
 	// TokenUsage reports provider or custom-model token counts when available.
 	TokenUsage            TokenUsage
+	StreamTelemetry       StreamTelemetry
 	ProviderDiagnostics   ProviderDiagnostics
 	ModelErrorSubcategory ModelErrorSubcategory
 	Approved              bool
@@ -782,6 +783,20 @@ type NoopObserver struct{}
 
 func (NoopObserver) Observe(context.Context, Observation) {}
 
+// StreamTelemetry contains sanitized counters and durations for a streaming
+// model call. It intentionally omits streamed text content.
+type StreamTelemetry struct {
+	// TimeToFirstToken is the elapsed time from stream request start until the
+	// first delta is received. It remains zero if no delta is received.
+	TimeToFirstToken time.Duration
+	// DeltaCount is the number of streamed delta events received.
+	DeltaCount int
+	// ByteCount is the total byte length of streamed delta text.
+	ByteCount int
+	// ThroughputBytesPerSecond is ByteCount divided by total stream duration.
+	ThroughputBytesPerSecond float64
+}
+
 // Observation is a safe telemetry view of an Event. It intentionally omits
 // message content, tool arguments, tool results, raw errors, and MCP settings.
 type Observation struct {
@@ -803,6 +818,8 @@ type Observation struct {
 	EstimatedTokens int
 	// TokenUsage reports sanitized real token counts when a model reports them.
 	TokenUsage TokenUsage
+	// StreamTelemetry reports sanitized counters and durations for streaming runs.
+	StreamTelemetry StreamTelemetry
 	// ProviderDiagnostics reports safe provider metadata for model failures.
 	ProviderDiagnostics ProviderDiagnostics
 	// ModelErrorSubcategory refines ErrorCategoryModel for safe alert grouping.
@@ -832,6 +849,7 @@ func ObservationFromEvent(event Event) Observation {
 		Duration:              event.Duration,
 		EstimatedTokens:       event.EstimatedTokens,
 		TokenUsage:            event.TokenUsage,
+		StreamTelemetry:       event.StreamTelemetry,
 		ProviderDiagnostics:   event.ProviderDiagnostics,
 		ModelErrorSubcategory: event.ModelErrorSubcategory,
 		Approved:              event.Approved,

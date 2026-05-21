@@ -178,12 +178,20 @@ func writeObservationSampleHash(hasher hash.Hash64, observation Observation) {
 	writeObservationSampleInt(hasher, observation.TokenUsage.InputTokens)
 	writeObservationSampleInt(hasher, observation.TokenUsage.OutputTokens)
 	writeObservationSampleInt(hasher, observation.TokenUsage.TotalTokens)
+	writeObservationSampleStreamTelemetry(hasher, observation.StreamTelemetry)
 	writeObservationSampleProviderDiagnostics(hasher, observation.ProviderDiagnostics)
 	writeObservationSampleString(hasher, string(observation.ModelErrorSubcategory))
 	writeObservationSampleBool(hasher, observation.Approved)
 	writeObservationSampleString(hasher, observation.ApprovalReason)
 	writeObservationSampleString(hasher, string(observation.ErrorCategory))
 	writeObservationSampleBool(hasher, observation.Failed)
+}
+
+func writeObservationSampleStreamTelemetry(hasher hash.Hash64, telemetry StreamTelemetry) {
+	writeObservationSampleInt64(hasher, telemetry.TimeToFirstToken.Nanoseconds())
+	writeObservationSampleInt(hasher, telemetry.DeltaCount)
+	writeObservationSampleInt(hasher, telemetry.ByteCount)
+	writeObservationSampleUint64(hasher, math.Float64bits(telemetry.ThroughputBytesPerSecond))
 }
 
 func writeObservationSampleProviderDiagnostics(hasher hash.Hash64, diagnostics ProviderDiagnostics) {

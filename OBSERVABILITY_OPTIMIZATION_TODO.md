@@ -55,7 +55,7 @@
 - [x] **13. Add sampling support for observations.**
   Provide configurable observation sampling by event type, failure status, or sampling ratio.
 
-- [ ] **14. Add streaming first-token and throughput telemetry.**
+- [x] **14. Add streaming first-token and throughput telemetry.**
   Track time-to-first-token, stream duration, and optional throughput metadata for streaming runs.
 
 - [ ] **15. Add optional streaming lifecycle observations.**

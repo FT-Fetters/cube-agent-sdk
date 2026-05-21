@@ -520,6 +520,7 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 	a.mu.Unlock()
 
 	var content strings.Builder
+	telemetry := streamTelemetryTracker{started: started}
 	done := false
 	for event := range modelEvents {
 		event.AgentID = agentID
@@ -527,16 +528,17 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 		switch event.Type {
 		case StreamEventDelta:
 			if len(event.Message.ToolCalls) > 0 {
-				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started)
+				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry)
 				return
 			}
+			telemetry.recordDelta(event.Delta)
 			content.WriteString(event.Delta)
 			if !sendStreamEvent(ctx, out, event) {
 				return
 			}
 		case StreamEventDone:
 			if len(event.Message.ToolCalls) > 0 {
-				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started)
+				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry)
 				return
 			}
 			message := event.Message
@@ -548,15 +550,17 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			}
 			event.Message = cloneMessage(message)
 
+			duration := eventDurationSince(started)
 			if err := a.emit(ctx, Event{
 				Type:            EventAfterModel,
 				RequestID:       requestID,
 				Round:           round,
-				Duration:        eventDurationSince(started),
+				Duration:        duration,
 				EstimatedTokens: estimatedTokens,
+				StreamTelemetry: telemetry.telemetry(duration),
 				Message:         message,
 			}); err != nil {
-				a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started)
+				a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry)
 				return
 			}
 			// Commit only after done so interrupted delta streams do not persist partial assistant text.
@@ -574,12 +578,14 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			wrapped.RequestID = requestID
 			wrapped.Round = round
 			event.Error = wrapped
+			duration := eventDurationSince(started)
 			if emitErr := a.emit(ctx, Event{
 				Type:            EventAfterModel,
 				RequestID:       requestID,
 				Round:           round,
-				Duration:        eventDurationSince(started),
+				Duration:        duration,
 				EstimatedTokens: estimatedTokens,
+				StreamTelemetry: telemetry.telemetry(duration),
 				Error:           wrapped,
 			}); emitErr != nil {
 				event.Error = emitErr
@@ -588,17 +594,17 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			return
 		default:
 			err := fmt.Errorf("agent: unknown stream event type %q", event.Type)
-			a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started)
+			a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry)
 			return
 		}
 	}
 
 	if !done {
-		a.sendStreamError(ctx, out, agentID, errors.New("agent: stream ended without done event"), requestID, round, estimatedTokens, started)
+		a.sendStreamError(ctx, out, agentID, errors.New("agent: stream ended without done event"), requestID, round, estimatedTokens, started, telemetry)
 	}
 }
 
-func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, requestID string, round int, estimatedTokens int, started time.Time) {
+func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, requestID string, round int, estimatedTokens int, started time.Time, telemetry streamTelemetryTracker) {
 	err = streamAgentError(err)
 	runID := runIDFromContext(ctx)
 	var agentErr *AgentError
@@ -625,12 +631,14 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		})
 		return
 	}
+	duration := eventDurationSince(started)
 	if emitErr := a.emit(ctx, Event{
 		Type:            EventAfterModel,
 		RequestID:       requestID,
 		Round:           round,
-		Duration:        eventDurationSince(started),
+		Duration:        duration,
 		EstimatedTokens: estimatedTokens,
+		StreamTelemetry: telemetry.telemetry(duration),
 		Error:           err,
 	}); emitErr != nil {
 		err = emitErr
@@ -640,6 +648,36 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		AgentID: agentID,
 		Error:   err,
 	})
+}
+
+type streamTelemetryTracker struct {
+	started          time.Time
+	timeToFirstToken time.Duration
+	deltaCount       int
+	byteCount        int
+}
+
+func (t *streamTelemetryTracker) recordDelta(delta string) {
+	if t.deltaCount == 0 {
+		t.timeToFirstToken = eventDurationSince(t.started)
+	}
+	t.deltaCount++
+	t.byteCount += len(delta)
+}
+
+func (t streamTelemetryTracker) telemetry(duration time.Duration) StreamTelemetry {
+	if t.deltaCount == 0 {
+		return StreamTelemetry{}
+	}
+	streamTelemetry := StreamTelemetry{
+		TimeToFirstToken: t.timeToFirstToken,
+		DeltaCount:       t.deltaCount,
+		ByteCount:        t.byteCount,
+	}
+	if duration > 0 && t.byteCount > 0 {
+		streamTelemetry.ThroughputBytesPerSecond = float64(t.byteCount) / duration.Seconds()
+	}
+	return streamTelemetry
 }
 
 func streamAgentError(err error) error {

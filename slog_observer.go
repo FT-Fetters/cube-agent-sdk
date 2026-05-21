@@ -87,6 +87,9 @@ func slogObservationAttrs(observation Observation) []slog.Attr {
 	if tokenAttrs := tokenUsageSlogAttrs(observation.TokenUsage); tokenAttrs != nil {
 		attrs = append(attrs, slogGroupAttr("token_usage", tokenAttrs))
 	}
+	if streamAttrs := streamTelemetrySlogAttrs(observation.StreamTelemetry); streamAttrs != nil {
+		attrs = append(attrs, slogGroupAttr("stream_telemetry", streamAttrs))
+	}
 	if toolAttrs := toolSlogAttrs(observation); toolAttrs != nil {
 		attrs = append(attrs, slogGroupAttr("tool", toolAttrs))
 	}
@@ -122,6 +125,27 @@ func tokenUsageSlogAttrs(usage TokenUsage) []slog.Attr {
 		slog.Int("output_tokens", usage.OutputTokens),
 		slog.Int("total_tokens", usage.TotalTokens),
 	}
+}
+
+func streamTelemetrySlogAttrs(telemetry StreamTelemetry) []slog.Attr {
+	if telemetry.TimeToFirstToken == 0 && telemetry.DeltaCount == 0 && telemetry.ByteCount == 0 && telemetry.ThroughputBytesPerSecond == 0 {
+		return nil
+	}
+	var attrs []slog.Attr
+	if telemetry.TimeToFirstToken > 0 {
+		timeToFirstTokenMS := float64(telemetry.TimeToFirstToken) / float64(time.Millisecond)
+		attrs = append(attrs, slog.Float64("time_to_first_token_ms", timeToFirstTokenMS))
+	}
+	if telemetry.DeltaCount > 0 {
+		attrs = append(attrs, slog.Int("delta_count", telemetry.DeltaCount))
+	}
+	if telemetry.ByteCount > 0 {
+		attrs = append(attrs, slog.Int("byte_count", telemetry.ByteCount))
+	}
+	if telemetry.ThroughputBytesPerSecond > 0 {
+		attrs = append(attrs, slog.Float64("throughput_bytes_per_second", telemetry.ThroughputBytesPerSecond))
+	}
+	return attrs
 }
 
 func toolSlogAttrs(observation Observation) []slog.Attr {

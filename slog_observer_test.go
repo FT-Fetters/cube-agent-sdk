@@ -119,6 +119,7 @@ func TestSlogObserverOmitsZeroObservationAttributes(t *testing.T) {
 		"duration_ms",
 		"estimated_tokens",
 		"token_usage",
+		"stream_telemetry",
 		"tool",
 		"approval",
 		"provider_diagnostics",
@@ -129,6 +130,32 @@ func TestSlogObserverOmitsZeroObservationAttributes(t *testing.T) {
 			t.Fatalf("slog record field %q = %#v, want omitted", field, record[field])
 		}
 	}
+}
+
+func TestSlogObserverEmitsStreamTelemetryAttributes(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
+		ReplaceAttr: dropSlogTime,
+	}))
+	observer := NewSlogObserver(SlogObserverOptions{Logger: logger})
+	observation := Observation{
+		Type: EventAfterModel,
+		StreamTelemetry: StreamTelemetry{
+			TimeToFirstToken:         250 * time.Millisecond,
+			DeltaCount:               3,
+			ByteCount:                120,
+			ThroughputBytesPerSecond: 480,
+		},
+	}
+
+	observer.Observe(context.Background(), observation)
+
+	record := decodeSlogRecord(t, buf.String())
+	stream := assertSlogGroup(t, record, "stream_telemetry")
+	assertSlogField(t, stream, "time_to_first_token_ms", float64(250))
+	assertSlogField(t, stream, "delta_count", float64(3))
+	assertSlogField(t, stream, "byte_count", float64(120))
+	assertSlogField(t, stream, "throughput_bytes_per_second", float64(480))
 }
 
 func TestSlogObserverDoesNotEmitSensitiveEventPayloads(t *testing.T) {

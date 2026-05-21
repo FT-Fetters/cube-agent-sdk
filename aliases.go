@@ -156,6 +156,7 @@ type Hook = core.Hook
 type Observer = core.Observer
 type ObserverFunc = core.ObserverFunc
 type NoopObserver = core.NoopObserver
+type StreamTelemetry = core.StreamTelemetry
 type Observation = core.Observation
 
 var ObservationFromEvent = core.ObservationFromEvent

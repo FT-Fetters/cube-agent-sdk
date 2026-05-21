@@ -133,11 +133,11 @@ only emitted when the application installs `MetricsObserver` with a sink.
 
 Events and observations carry audit fields such as event type, agent ID,
 run ID, trace ID, span ID, trace state, subagent ID, request ID, parent request
-ID, round, duration, estimated tokens, real token usage, tool name, tool risk,
-approval result, skill name, error category, model error subcategory, and safe
-provider diagnostics for model failures. `ParentRequestID` links tool and
-approval events to the model request that caused them, and links follow-up model
-requests within the same run.
+ID, round, duration, estimated tokens, real token usage, streaming telemetry,
+tool name, tool risk, approval result, skill name, error category, model error
+subcategory, and safe provider diagnostics for model failures. `ParentRequestID`
+links tool and approval events to the model request that caused them, and links
+follow-up model requests within the same run.
 
 `EstimatedTokens` is the SDK's request-side estimate and stays populated even
 when the provider does not report usage. `TokenUsage` carries real input,
@@ -145,13 +145,21 @@ output, and total token counts from `ModelResponse.Usage` on non-streaming
 `EventAfterModel` records and their observations. If usage is unavailable, the
 `TokenUsage` fields remain zero.
 
+For streaming `EventAfterModel` records, `Duration` is the total stream
+duration. `StreamTelemetry` carries time to first token, delta count, streamed
+delta byte count, and bytes-per-second throughput when at least one delta was
+received. If a stream fails before the first delta, time to first token and the
+stream counters remain zero while `Duration` still records the failed stream
+duration.
+
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, full provider URLs with query strings, and MCP
 environment values.
 
 `SlogObserver` logs `event` and `failed` on every record. It omits other
 zero-value fields, emits duration as `duration_ms`, and groups token usage, tool
-metadata, approval metadata, and provider diagnostics as structured attributes.
+metadata, stream telemetry, approval metadata, and provider diagnostics as
+structured attributes.
 
 `MetricsObserver` increments `agent_observations_total` for every observation,
 increments `agent_observation_failures_total` for failed observations, and
