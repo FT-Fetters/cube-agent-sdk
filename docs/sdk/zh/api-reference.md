@@ -139,6 +139,14 @@
 - `SlogObserver`
 - `SlogObserverOptions`
 - `NewSlogObserver`
+- `MetricLabel`
+- `MetricSink`
+- `MetricsObserver`
+- `MetricsObserverOptions`
+- `NewMetricsObserver`
+- `DefaultMetricsEventCounterName`
+- `DefaultMetricsFailureCounterName`
+- `DefaultMetricsDurationName`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`

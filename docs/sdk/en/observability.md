@@ -69,9 +69,32 @@ slogObserver := agent.NewSlogObserver(agent.SlogObserverOptions{
 bot, err := agent.New(cfg, model, agent.WithObserver(slogObserver))
 ```
 
+For metrics, implement `MetricSink` in your application and install
+`MetricsObserver`:
+
+```go
+type appMetricSink struct{}
+
+func (appMetricSink) AddCounter(ctx context.Context, name string, delta int64, labels []agent.MetricLabel) {
+	// Forward the counter update to your metrics backend.
+}
+
+func (appMetricSink) RecordDuration(ctx context.Context, name string, duration time.Duration, labels []agent.MetricLabel) {
+	// Forward the duration to your metrics backend or histogram.
+}
+
+metricsObserver := agent.NewMetricsObserver(agent.MetricsObserverOptions{
+	Sink: appMetricSink{},
+})
+
+bot, err := agent.New(cfg, model, agent.WithObserver(metricsObserver))
+```
+
 Observer panics are recovered and ignored. Telemetry is best-effort and must not
 change agent behavior. `NoopObserver` remains the default; slog output is only
-emitted when the application installs `SlogObserver` with `WithObserver`.
+emitted when the application installs `SlogObserver` with `WithObserver`, and
+metrics are only emitted when the application installs `MetricsObserver` with a
+sink.
 
 ## Sanitized Metadata
 
@@ -96,3 +119,11 @@ environment values.
 `SlogObserver` logs `event` and `failed` on every record. It omits other
 zero-value fields, emits duration as `duration_ms`, and groups token usage, tool
 metadata, approval metadata, and provider diagnostics as structured attributes.
+
+`MetricsObserver` increments `agent_observations_total` for every observation,
+increments `agent_observation_failures_total` for failed observations, and
+records positive durations as `agent_observation_duration`. Metric labels are
+limited to `event`, `failed`, `error_category`, `model_error_subcategory`,
+`tool_name`, `tool_risk`, `provider`, and `http_status` when present. Run IDs,
+request IDs, trace IDs, and provider request IDs are intentionally omitted from
+metric labels by default.

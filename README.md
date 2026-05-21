@@ -496,6 +496,19 @@ bot, err := agent.New(cfg, model,
 )
 ```
 
+For metrics, implement `MetricSink` in your application and opt in with
+`NewMetricsObserver`:
+
+```go
+metricsObserver := agent.NewMetricsObserver(agent.MetricsObserverOptions{
+	Sink: appMetricSink{},
+})
+
+bot, err := agent.New(cfg, model,
+	agent.WithObserver(metricsObserver),
+)
+```
+
 Events and observations carry audit fields such as event type, agent ID,
 run ID, subagent ID, request ID, parent request ID, round, duration, estimated
 tokens, tool name, tool risk, approval result, skill name, and error category.
@@ -506,6 +519,9 @@ trace for one `Run` or `RunStream`; otherwise the SDK generates a run ID.
 `SlogObserver` always logs `event` and `failed`, and omits other zero-value
 attributes. Duration is emitted as `duration_ms`; token usage, tool metadata,
 approval metadata, and provider diagnostics are emitted as structured groups.
+`MetricsObserver` emits event and failure counters, plus duration recordings for
+positive durations, using only low-cardinality labels derived from sanitized
+observations.
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.
 

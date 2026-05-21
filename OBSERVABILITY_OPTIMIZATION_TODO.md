@@ -46,7 +46,7 @@
 - [x] **10. Add a standard-library slog observer.**
   Provide a `log/slog` observer that emits structured, sanitized lifecycle telemetry with no third-party dependencies.
 
-- [ ] **11. Add a lightweight metrics observer interface or example.**
+- [x] **11. Add a lightweight metrics observer interface or example.**
   Provide a metrics integration path for counters and latency histograms without forcing a Prometheus dependency.
 
 - [ ] **12. Add observer fan-out composition.**

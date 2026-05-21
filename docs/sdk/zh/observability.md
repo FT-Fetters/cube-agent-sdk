@@ -67,9 +67,30 @@ slogObserver := agent.NewSlogObserver(agent.SlogObserverOptions{
 bot, err := agent.New(cfg, model, agent.WithObserver(slogObserver))
 ```
 
+如需接入指标系统，可以在应用中实现 `MetricSink` 并挂载 `MetricsObserver`：
+
+```go
+type appMetricSink struct{}
+
+func (appMetricSink) AddCounter(ctx context.Context, name string, delta int64, labels []agent.MetricLabel) {
+	// Forward the counter update to your metrics backend.
+}
+
+func (appMetricSink) RecordDuration(ctx context.Context, name string, duration time.Duration, labels []agent.MetricLabel) {
+	// Forward the duration to your metrics backend or histogram.
+}
+
+metricsObserver := agent.NewMetricsObserver(agent.MetricsObserverOptions{
+	Sink: appMetricSink{},
+})
+
+bot, err := agent.New(cfg, model, agent.WithObserver(metricsObserver))
+```
+
 Observer panic 会被 recover 并忽略。遥测是 best-effort，不能改变 agent 行为。
 默认 observer 仍是 `NoopObserver`；只有应用通过 `WithObserver` 挂载
-`SlogObserver` 时才会输出 slog 日志。
+`SlogObserver` 时才会输出 slog 日志；只有应用挂载带 sink 的 `MetricsObserver`
+时才会输出指标。
 
 ## 脱敏元数据
 
@@ -90,3 +111,10 @@ query string 的完整 provider URL 和 MCP 环境变量。
 `SlogObserver` 每条记录都会输出 `event` 和 `failed`。其他零值字段会被省略；
 duration 以 `duration_ms` 输出；token usage、工具元数据、审批元数据和 provider
 diagnostics 会作为结构化 group 输出。
+
+`MetricsObserver` 会为每条 observation 递增 `agent_observations_total`，为失败
+observation 递增 `agent_observation_failures_total`，并把正数 duration 记录到
+`agent_observation_duration`。指标标签限定为 `event`、`failed`、
+`error_category`、`model_error_subcategory`、`tool_name`、`tool_risk`、
+`provider` 和存在时的 `http_status`。默认不会把 run ID、request ID、trace ID
+或 provider request ID 放入指标标签。
