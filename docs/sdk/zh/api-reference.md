@@ -147,6 +147,9 @@
 
 - `AgentError`
 - `ErrorCategory`
+- `ModelErrorSubcategory`
+- `ModelErrorSubcategoryFromError`
+- `ProviderDiagnosticsFromError`
 - `ErrApprovalDenied`
 - `ErrToolNotFound`
 - `ErrToolValidation`

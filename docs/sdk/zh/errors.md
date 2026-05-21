@@ -33,14 +33,15 @@ _ = reply
 ## AgentError
 
 `AgentError` 携带 category、operation、agent ID、run ID、trace ID、span ID、
-trace state、request ID、parent request ID、tool name、subagent ID、round、可用时的 provider diagnostics 和被包装的 cause。需要审计上下文时使用
-`errors.As`。
+trace state、request ID、parent request ID、tool name、subagent ID、round、可用时的 provider diagnostics、适用时的 model error subcategory 和被包装的
+cause。需要审计上下文时使用 `errors.As`。
 
 ```go
 var agentErr *agent.AgentError
 if errors.As(err, &agentErr) {
-	log.Printf("category=%s operation=%s request=%s",
+	log.Printf("category=%s subcategory=%s operation=%s request=%s",
 		agentErr.Category,
+		agentErr.ModelErrorSubcategory,
 		agentErr.Operation,
 		agentErr.RequestID,
 	)
@@ -72,6 +73,17 @@ if errors.As(err, &agentErr) {
 ```
 
 直接处理模型适配器返回的错误时，可以使用 `ProviderDiagnosticsFromError`。
+
+## 模型错误子类别
+
+模型失败仍保留 `ErrorCategoryModel` 作为高层 category，并可携带
+`ModelErrorSubcategory`，用于日志和告警分组。内置 provider 会将 HTTP 401/403
+分类为 `auth`，HTTP 429 分类为 `rate_limited`，其他 HTTP 400-499 分类为
+`bad_request`，HTTP 500-599 分类为 `server_error`，timeout-like transport
+失败分类为 `timeout`，其他 transport 失败分类为 `transport_error`，JSON decode
+失败分类为 `decode_error`，无法进一步分类的 model/provider 失败分类为 `unknown`。
+
+直接处理模型适配器返回的错误时，可以使用 `ModelErrorSubcategoryFromError`。
 
 ## 错误类别
 

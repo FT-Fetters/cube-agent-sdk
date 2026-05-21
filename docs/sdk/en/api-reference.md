@@ -147,6 +147,9 @@ method-level details while keeping this page as a navigation aid.
 
 - `AgentError`
 - `ErrorCategory`
+- `ModelErrorSubcategory`
+- `ModelErrorSubcategoryFromError`
+- `ProviderDiagnosticsFromError`
 - `ErrApprovalDenied`
 - `ErrToolNotFound`
 - `ErrToolValidation`

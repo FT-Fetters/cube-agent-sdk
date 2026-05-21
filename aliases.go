@@ -38,6 +38,8 @@ type TokenUsage = core.TokenUsage
 type ProviderDiagnostics = core.ProviderDiagnostics
 type ProviderDiagnosticsError = core.ProviderDiagnosticsError
 type ProviderError = core.ProviderError
+type ModelErrorSubcategory = core.ModelErrorSubcategory
+type ModelErrorSubcategoryError = core.ModelErrorSubcategoryError
 type ModelResponse = core.ModelResponse
 type Config = core.Config
 
@@ -113,11 +115,25 @@ const (
 	ErrorCategoryConfig    = core.ErrorCategoryConfig
 )
 
+const (
+	ModelErrorSubcategoryTimeout        = core.ModelErrorSubcategoryTimeout
+	ModelErrorSubcategoryRateLimited    = core.ModelErrorSubcategoryRateLimited
+	ModelErrorSubcategoryAuth           = core.ModelErrorSubcategoryAuth
+	ModelErrorSubcategoryServerError    = core.ModelErrorSubcategoryServerError
+	ModelErrorSubcategoryBadRequest     = core.ModelErrorSubcategoryBadRequest
+	ModelErrorSubcategoryDecodeError    = core.ModelErrorSubcategoryDecodeError
+	ModelErrorSubcategoryTransportError = core.ModelErrorSubcategoryTransportError
+	ModelErrorSubcategoryUnknown        = core.ModelErrorSubcategoryUnknown
+)
+
 type AgentError = core.AgentError
 
 var (
-	NewProviderError             = core.NewProviderError
-	ProviderDiagnosticsFromError = core.ProviderDiagnosticsFromError
+	NewProviderError               = core.NewProviderError
+	NewProviderTransportError      = core.NewProviderTransportError
+	NewProviderDecodeError         = core.NewProviderDecodeError
+	ProviderDiagnosticsFromError   = core.ProviderDiagnosticsFromError
+	ModelErrorSubcategoryFromError = core.ModelErrorSubcategoryFromError
 )
 
 type EventType = core.EventType

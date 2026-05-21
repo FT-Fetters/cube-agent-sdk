@@ -40,7 +40,7 @@
 - [x] **8. Capture common diagnostic response headers.**
   Capture safe response headers such as request IDs, rate-limit hints, and retry-after values for provider diagnostics.
 
-- [ ] **9. Standardize provider error classification.**
+- [x] **9. Standardize provider error classification.**
   Add model error subcategories such as timeout, rate limited, authentication, server error, bad request, and decode error for logs and alert grouping.
 
 - [ ] **10. Add a standard-library slog observer.**

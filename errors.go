@@ -42,5 +42,12 @@ func agentError(category ErrorCategory, operation string, cause error) *AgentErr
 	if diagnostics, ok := ProviderDiagnosticsFromError(cause); ok {
 		wrapped.ProviderDiagnostics = diagnostics
 	}
+	if category == ErrorCategoryModel {
+		if subcategory, ok := ModelErrorSubcategoryFromError(cause); ok {
+			wrapped.ModelErrorSubcategory = subcategory
+		} else {
+			wrapped.ModelErrorSubcategory = ModelErrorSubcategoryUnknown
+		}
+	}
 	return wrapped
 }

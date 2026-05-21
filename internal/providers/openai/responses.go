@@ -97,7 +97,7 @@ func (m *OpenAIResponsesModel) Generate(ctx context.Context, request ModelReques
 	}
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		return ModelResponse{}, core.NewProviderError("call openai responses", diagnostics, err)
+		return ModelResponse{}, core.NewProviderTransportError("call openai responses", diagnostics, err)
 	}
 	defer httpResponse.Body.Close()
 
@@ -108,7 +108,7 @@ func (m *OpenAIResponsesModel) Generate(ctx context.Context, request ModelReques
 
 	var decoded openAIResponsesResponse
 	if err := json.NewDecoder(httpResponse.Body).Decode(&decoded); err != nil {
-		return ModelResponse{}, core.NewProviderError("decode openai responses response", diagnostics, err)
+		return ModelResponse{}, core.NewProviderDecodeError("decode openai responses response", diagnostics, err)
 	}
 	return decoded.modelResponse()
 }

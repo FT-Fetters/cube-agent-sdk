@@ -228,6 +228,83 @@ func TestBuiltInProviderNon2xxErrorsCarryDiagnosticResponseHeaders(t *testing.T)
 	}
 }
 
+func TestBuiltInProviderHTTPErrorSubcategories(t *testing.T) {
+	providers := []struct {
+		name     string
+		newModel func(string, *http.Client) (Model, error)
+	}{
+		{
+			name: "openai-compatible",
+			newModel: func(baseURL string, client *http.Client) (Model, error) {
+				return NewOpenAICompatibleModel(OpenAICompatibleConfig{
+					BaseURL:    baseURL,
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name: "openai-responses",
+			newModel: func(baseURL string, client *http.Client) (Model, error) {
+				return NewOpenAIResponsesModel(OpenAIResponsesConfig{
+					BaseURL:    baseURL,
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name: "anthropic-messages",
+			newModel: func(baseURL string, client *http.Client) (Model, error) {
+				return NewAnthropicMessagesModel(AnthropicMessagesConfig{
+					BaseURL:    baseURL,
+					Model:      "claude-test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+	}
+	statuses := []struct {
+		name string
+		code int
+		want ModelErrorSubcategory
+	}{
+		{name: "401", code: http.StatusUnauthorized, want: ModelErrorSubcategoryAuth},
+		{name: "403", code: http.StatusForbidden, want: ModelErrorSubcategoryAuth},
+		{name: "429", code: http.StatusTooManyRequests, want: ModelErrorSubcategoryRateLimited},
+		{name: "400", code: http.StatusBadRequest, want: ModelErrorSubcategoryBadRequest},
+		{name: "404", code: http.StatusNotFound, want: ModelErrorSubcategoryBadRequest},
+		{name: "500", code: http.StatusInternalServerError, want: ModelErrorSubcategoryServerError},
+		{name: "503", code: http.StatusServiceUnavailable, want: ModelErrorSubcategoryServerError},
+		{name: "302", code: http.StatusFound, want: ModelErrorSubcategoryUnknown},
+	}
+
+	for _, provider := range providers {
+		for _, status := range statuses {
+			t.Run(provider.name+"/"+status.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "provider rejected request", status.code)
+				}))
+				defer server.Close()
+
+				model, err := provider.newModel(server.URL, server.Client())
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				_, err = model.Generate(context.Background(), ModelRequest{})
+				if err == nil {
+					t.Fatal("Generate returned nil error, want provider error")
+				}
+				got, ok := ModelErrorSubcategoryFromError(err)
+				if !ok || got != status.want {
+					t.Fatalf("ModelErrorSubcategoryFromError = %q/%t, want %q/true", got, ok, status.want)
+				}
+			})
+		}
+	}
+}
+
 func TestProviderDiagnosticsNormalizesDiagnosticResponseHeaders(t *testing.T) {
 	err := NewProviderError("provider error", ProviderDiagnostics{
 		Provider:           " test-provider ",
@@ -326,7 +403,70 @@ func TestBuiltInProviderTransportErrorsCarrySafeDiagnostics(t *testing.T) {
 			if !ok || got != want {
 				t.Fatalf("ProviderDiagnosticsFromError = %#v/%t, want %#v/true", got, ok, want)
 			}
+			gotSubcategory, ok := ModelErrorSubcategoryFromError(err)
+			if !ok || gotSubcategory != ModelErrorSubcategoryTransportError {
+				t.Fatalf("ModelErrorSubcategoryFromError = %q/%t, want %q/true", gotSubcategory, ok, ModelErrorSubcategoryTransportError)
+			}
 			assertProviderErrorStringIsSafe(t, err, "transport-secret", "test-key", "query-secret", "api_key=query-secret", "https://transport.example.test")
+		})
+	}
+}
+
+func TestBuiltInProviderTimeoutErrorsCarryTimeoutSubcategory(t *testing.T) {
+	tests := []struct {
+		name     string
+		newModel func(*http.Client) (Model, error)
+	}{
+		{
+			name: "openai-compatible",
+			newModel: func(client *http.Client) (Model, error) {
+				return NewOpenAICompatibleModel(OpenAICompatibleConfig{
+					BaseURL:    "https://timeout.example.test/v1",
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name: "openai-responses",
+			newModel: func(client *http.Client) (Model, error) {
+				return NewOpenAIResponsesModel(OpenAIResponsesConfig{
+					BaseURL:    "https://timeout.example.test/v1",
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name: "anthropic-messages",
+			newModel: func(client *http.Client) (Model, error) {
+				return NewAnthropicMessagesModel(AnthropicMessagesConfig{
+					BaseURL:    "https://timeout.example.test/v1",
+					Model:      "claude-test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, context.DeadlineExceeded
+			})}
+			model, err := tt.newModel(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = model.Generate(context.Background(), ModelRequest{})
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("err = %v, want deadline exceeded compatibility", err)
+			}
+			got, ok := ModelErrorSubcategoryFromError(err)
+			if !ok || got != ModelErrorSubcategoryTimeout {
+				t.Fatalf("ModelErrorSubcategoryFromError = %q/%t, want %q/true", got, ok, ModelErrorSubcategoryTimeout)
+			}
 		})
 	}
 }
@@ -398,6 +538,10 @@ func TestBuiltInProviderDecodeErrorsCarrySafeDiagnostics(t *testing.T) {
 			if !ok || got != want {
 				t.Fatalf("ProviderDiagnosticsFromError = %#v/%t, want %#v/true", got, ok, want)
 			}
+			gotSubcategory, ok := ModelErrorSubcategoryFromError(err)
+			if !ok || gotSubcategory != ModelErrorSubcategoryDecodeError {
+				t.Fatalf("ModelErrorSubcategoryFromError = %q/%t, want %q/true", gotSubcategory, ok, ModelErrorSubcategoryDecodeError)
+			}
 			assertProviderErrorStringIsSafe(t, err, "secret-prompt", "query-secret", "api_key=query-secret")
 		})
 	}
@@ -451,13 +595,22 @@ func TestAgentModelErrorsExposeProviderDiagnosticsToErrorsEventsAndObservations(
 	if agentErr.ProviderDiagnostics != want {
 		t.Fatalf("agent error provider diagnostics = %#v, want %#v", agentErr.ProviderDiagnostics, want)
 	}
+	if agentErr.ModelErrorSubcategory != ModelErrorSubcategoryRateLimited {
+		t.Fatalf("agent error model error subcategory = %q, want %q", agentErr.ModelErrorSubcategory, ModelErrorSubcategoryRateLimited)
+	}
 	afterModel := firstEventOfType(t, events, EventAfterModel)
 	if afterModel.ProviderDiagnostics != want {
 		t.Fatalf("after model provider diagnostics = %#v, want %#v", afterModel.ProviderDiagnostics, want)
 	}
+	if afterModel.ErrorCategory != ErrorCategoryModel || afterModel.ModelErrorSubcategory != ModelErrorSubcategoryRateLimited {
+		t.Fatalf("after model error classification = %q/%q, want %q/%q", afterModel.ErrorCategory, afterModel.ModelErrorSubcategory, ErrorCategoryModel, ModelErrorSubcategoryRateLimited)
+	}
 	afterObservation := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
 	if afterObservation.ProviderDiagnostics != want {
 		t.Fatalf("after model observation provider diagnostics = %#v, want %#v", afterObservation.ProviderDiagnostics, want)
+	}
+	if afterObservation.ErrorCategory != ErrorCategoryModel || afterObservation.ModelErrorSubcategory != ModelErrorSubcategoryRateLimited {
+		t.Fatalf("after model observation error classification = %q/%q, want %q/%q", afterObservation.ErrorCategory, afterObservation.ModelErrorSubcategory, ErrorCategoryModel, ModelErrorSubcategoryRateLimited)
 	}
 	assertProviderErrorStringIsSafe(t, err, "provider rejected", "secret-prompt", "test-key", "query-secret", "api_key=query-secret")
 	assertObservationDoesNotContain(t, afterObservation, "secret-prompt")

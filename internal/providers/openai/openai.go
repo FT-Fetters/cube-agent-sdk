@@ -104,7 +104,7 @@ func (m *OpenAICompatibleModel) Generate(ctx context.Context, request ModelReque
 	}
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		return ModelResponse{}, core.NewProviderError("call openai-compatible chat completions", diagnostics, err)
+		return ModelResponse{}, core.NewProviderTransportError("call openai-compatible chat completions", diagnostics, err)
 	}
 	defer httpResponse.Body.Close()
 
@@ -115,7 +115,7 @@ func (m *OpenAICompatibleModel) Generate(ctx context.Context, request ModelReque
 
 	var decoded openAIChatCompletionResponse
 	if err := json.NewDecoder(httpResponse.Body).Decode(&decoded); err != nil {
-		return ModelResponse{}, core.NewProviderError("decode openai-compatible response", diagnostics, err)
+		return ModelResponse{}, core.NewProviderDecodeError("decode openai-compatible response", diagnostics, err)
 	}
 	return decoded.modelResponse()
 }

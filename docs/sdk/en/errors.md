@@ -34,14 +34,15 @@ _ = reply
 
 `AgentError` carries category, operation, agent ID, run ID, trace ID, span ID,
 trace state, request ID, parent request ID, tool name, subagent ID, round,
-provider diagnostics when available, and the wrapped cause. Use `errors.As`
-when audit context is needed.
+provider diagnostics when available, model error subcategory when applicable,
+and the wrapped cause. Use `errors.As` when audit context is needed.
 
 ```go
 var agentErr *agent.AgentError
 if errors.As(err, &agentErr) {
-	log.Printf("category=%s operation=%s request=%s",
+	log.Printf("category=%s subcategory=%s operation=%s request=%s",
 		agentErr.Category,
+		agentErr.ModelErrorSubcategory,
 		agentErr.Operation,
 		agentErr.RequestID,
 	)
@@ -74,6 +75,19 @@ if errors.As(err, &agentErr) {
 
 When handling errors returned directly from a model adapter, use
 `ProviderDiagnosticsFromError`.
+
+## Model Error Subcategories
+
+Model failures keep `ErrorCategoryModel` as their high-level category and may
+also carry `ModelErrorSubcategory` for logs and alert grouping. Built-in
+providers classify HTTP 401/403 as `auth`, HTTP 429 as `rate_limited`, other
+HTTP 400-499 as `bad_request`, HTTP 500-599 as `server_error`, timeout-like
+transport failures as `timeout`, other transport failures as `transport_error`,
+JSON decode failures as `decode_error`, and unclassified model/provider
+failures as `unknown`.
+
+Use `ModelErrorSubcategoryFromError` when handling errors returned directly
+from a model adapter.
 
 ## Error Categories
 

@@ -947,6 +947,11 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 	if event.Error != nil && event.ErrorCategory == "" {
 		event.ErrorCategory = classifyError(event.Error)
 	}
+	if event.Error != nil && event.ErrorCategory == ErrorCategoryModel && event.ModelErrorSubcategory == "" {
+		if subcategory, ok := ModelErrorSubcategoryFromError(event.Error); ok {
+			event.ModelErrorSubcategory = subcategory
+		}
+	}
 	if event.Error != nil && event.ProviderDiagnostics.IsZero() {
 		if diagnostics, ok := ProviderDiagnosticsFromError(event.Error); ok {
 			event.ProviderDiagnostics = diagnostics

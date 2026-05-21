@@ -122,7 +122,7 @@ func (m *AnthropicMessagesModel) Generate(ctx context.Context, request ModelRequ
 	}
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		return ModelResponse{}, core.NewProviderError("call anthropic messages", diagnostics, err)
+		return ModelResponse{}, core.NewProviderTransportError("call anthropic messages", diagnostics, err)
 	}
 	defer httpResponse.Body.Close()
 
@@ -133,7 +133,7 @@ func (m *AnthropicMessagesModel) Generate(ctx context.Context, request ModelRequ
 
 	var decoded anthropicMessagesResponse
 	if err := json.NewDecoder(httpResponse.Body).Decode(&decoded); err != nil {
-		return ModelResponse{}, core.NewProviderError("decode anthropic messages response", diagnostics, err)
+		return ModelResponse{}, core.NewProviderDecodeError("decode anthropic messages response", diagnostics, err)
 	}
 	return decoded.modelResponse()
 }

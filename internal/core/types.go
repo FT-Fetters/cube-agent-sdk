@@ -118,23 +118,72 @@ type ProviderDiagnosticsError interface {
 	SafeProviderDiagnostics() ProviderDiagnostics
 }
 
+// ModelErrorSubcategory identifies provider/model failure details suitable for
+// log grouping and alert routing. It refines ErrorCategoryModel without
+// replacing the high-level category.
+type ModelErrorSubcategory string
+
+const (
+	ModelErrorSubcategoryTimeout        ModelErrorSubcategory = "timeout"
+	ModelErrorSubcategoryRateLimited    ModelErrorSubcategory = "rate_limited"
+	ModelErrorSubcategoryAuth           ModelErrorSubcategory = "auth"
+	ModelErrorSubcategoryServerError    ModelErrorSubcategory = "server_error"
+	ModelErrorSubcategoryBadRequest     ModelErrorSubcategory = "bad_request"
+	ModelErrorSubcategoryDecodeError    ModelErrorSubcategory = "decode_error"
+	ModelErrorSubcategoryTransportError ModelErrorSubcategory = "transport_error"
+	ModelErrorSubcategoryUnknown        ModelErrorSubcategory = "unknown"
+)
+
+// ModelErrorSubcategoryError is implemented by errors that expose sanitized
+// model/provider failure classification without requiring raw error parsing.
+type ModelErrorSubcategoryError interface {
+	SafeModelErrorSubcategory() ModelErrorSubcategory
+}
+
 // ProviderError is returned by built-in provider adapters when safe diagnostic
 // metadata is available. Error intentionally omits the wrapped cause text; use
 // Unwrap, errors.Is, or errors.As when programmatic access to the cause is
 // needed.
 type ProviderError struct {
-	Message     string
-	Diagnostics ProviderDiagnostics
-	Cause       error
+	Message               string
+	Diagnostics           ProviderDiagnostics
+	ModelErrorSubcategory ModelErrorSubcategory
+	Cause                 error
 }
 
 // NewProviderError wraps a provider failure with safe diagnostic metadata.
 func NewProviderError(message string, diagnostics ProviderDiagnostics, cause error) *ProviderError {
+	diagnostics = normalizeProviderDiagnostics(diagnostics)
 	return &ProviderError{
-		Message:     strings.TrimSpace(message),
-		Diagnostics: normalizeProviderDiagnostics(diagnostics),
-		Cause:       cause,
+		Message:               strings.TrimSpace(message),
+		Diagnostics:           diagnostics,
+		ModelErrorSubcategory: modelErrorSubcategoryFromHTTPStatus(diagnostics.HTTPStatus),
+		Cause:                 cause,
 	}
+}
+
+// NewProviderTransportError wraps a provider transport failure and classifies
+// timeouts separately from other connection/request failures.
+func NewProviderTransportError(message string, diagnostics ProviderDiagnostics, cause error) *ProviderError {
+	subcategory := ModelErrorSubcategoryTransportError
+	if isTimeoutError(cause) {
+		subcategory = ModelErrorSubcategoryTimeout
+	}
+	return newProviderErrorWithModelErrorSubcategory(message, diagnostics, cause, subcategory)
+}
+
+// NewProviderDecodeError wraps a provider response decode failure.
+func NewProviderDecodeError(message string, diagnostics ProviderDiagnostics, cause error) *ProviderError {
+	return newProviderErrorWithModelErrorSubcategory(message, diagnostics, cause, ModelErrorSubcategoryDecodeError)
+}
+
+func newProviderErrorWithModelErrorSubcategory(message string, diagnostics ProviderDiagnostics, cause error, subcategory ModelErrorSubcategory) *ProviderError {
+	err := NewProviderError(message, diagnostics, cause)
+	err.ModelErrorSubcategory = normalizeModelErrorSubcategory(subcategory)
+	if err.ModelErrorSubcategory == "" {
+		err.ModelErrorSubcategory = ModelErrorSubcategoryUnknown
+	}
+	return err
 }
 
 func (e *ProviderError) Error() string {
@@ -160,6 +209,19 @@ func (e *ProviderError) SafeProviderDiagnostics() ProviderDiagnostics {
 		return ProviderDiagnostics{}
 	}
 	return normalizeProviderDiagnostics(e.Diagnostics)
+}
+
+func (e *ProviderError) SafeModelErrorSubcategory() ModelErrorSubcategory {
+	if e == nil {
+		return ""
+	}
+	if subcategory := normalizeModelErrorSubcategory(e.ModelErrorSubcategory); subcategory != "" {
+		return subcategory
+	}
+	if subcategory := modelErrorSubcategoryFromHTTPStatus(e.Diagnostics.HTTPStatus); subcategory != "" {
+		return subcategory
+	}
+	return ModelErrorSubcategoryUnknown
 }
 
 // ProviderDiagnosticsFromError extracts safe provider diagnostics from an error
@@ -188,6 +250,35 @@ func ProviderDiagnosticsFromError(err error) (ProviderDiagnostics, bool) {
 	return ProviderDiagnostics{}, false
 }
 
+// ModelErrorSubcategoryFromError extracts a sanitized model/provider failure
+// subcategory from an error chain when available.
+func ModelErrorSubcategoryFromError(err error) (ModelErrorSubcategory, bool) {
+	if err == nil {
+		return "", false
+	}
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) {
+		if subcategory := normalizeModelErrorSubcategory(agentErr.ModelErrorSubcategory); subcategory != "" {
+			return subcategory, true
+		}
+		if agentErr.Cause != nil {
+			if subcategory, ok := ModelErrorSubcategoryFromError(agentErr.Cause); ok {
+				return subcategory, true
+			}
+		}
+		if agentErr.Category == ErrorCategoryModel {
+			return ModelErrorSubcategoryUnknown, true
+		}
+	}
+	var subcategoryErr ModelErrorSubcategoryError
+	if errors.As(err, &subcategoryErr) {
+		if subcategory := normalizeModelErrorSubcategory(subcategoryErr.SafeModelErrorSubcategory()); subcategory != "" {
+			return subcategory, true
+		}
+	}
+	return "", false
+}
+
 func normalizeProviderDiagnostics(diagnostics ProviderDiagnostics) ProviderDiagnostics {
 	diagnostics.Provider = strings.TrimSpace(diagnostics.Provider)
 	diagnostics.EndpointHost = strings.TrimSpace(diagnostics.EndpointHost)
@@ -200,6 +291,61 @@ func normalizeProviderDiagnostics(diagnostics ProviderDiagnostics) ProviderDiagn
 		diagnostics.HTTPStatus = 0
 	}
 	return diagnostics
+}
+
+func normalizeModelErrorSubcategory(subcategory ModelErrorSubcategory) ModelErrorSubcategory {
+	switch ModelErrorSubcategory(strings.TrimSpace(string(subcategory))) {
+	case "":
+		return ""
+	case ModelErrorSubcategoryTimeout:
+		return ModelErrorSubcategoryTimeout
+	case ModelErrorSubcategoryRateLimited:
+		return ModelErrorSubcategoryRateLimited
+	case ModelErrorSubcategoryAuth:
+		return ModelErrorSubcategoryAuth
+	case ModelErrorSubcategoryServerError:
+		return ModelErrorSubcategoryServerError
+	case ModelErrorSubcategoryBadRequest:
+		return ModelErrorSubcategoryBadRequest
+	case ModelErrorSubcategoryDecodeError:
+		return ModelErrorSubcategoryDecodeError
+	case ModelErrorSubcategoryTransportError:
+		return ModelErrorSubcategoryTransportError
+	case ModelErrorSubcategoryUnknown:
+		return ModelErrorSubcategoryUnknown
+	default:
+		return ModelErrorSubcategoryUnknown
+	}
+}
+
+func modelErrorSubcategoryFromHTTPStatus(status int) ModelErrorSubcategory {
+	switch {
+	case status == 0:
+		return ModelErrorSubcategoryUnknown
+	case status == 401 || status == 403:
+		return ModelErrorSubcategoryAuth
+	case status == 429:
+		return ModelErrorSubcategoryRateLimited
+	case status >= 400 && status <= 499:
+		return ModelErrorSubcategoryBadRequest
+	case status >= 500 && status <= 599:
+		return ModelErrorSubcategoryServerError
+	default:
+		return ModelErrorSubcategoryUnknown
+	}
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var timeout interface {
+		Timeout() bool
+	}
+	return errors.As(err, &timeout) && timeout.Timeout()
 }
 
 // ModelResponse is the model output. It may return a final assistant message or tool calls.
@@ -530,12 +676,13 @@ type AgentError struct {
 	TraceState string
 	RequestID  string
 	// ParentRequestID links nested failures to the request that caused them.
-	ParentRequestID     string
-	ToolName            string
-	SubagentID          string
-	Round               int
-	ProviderDiagnostics ProviderDiagnostics
-	Cause               error
+	ParentRequestID       string
+	ToolName              string
+	SubagentID            string
+	Round                 int
+	ProviderDiagnostics   ProviderDiagnostics
+	ModelErrorSubcategory ModelErrorSubcategory
+	Cause                 error
 }
 
 func (e *AgentError) Error() string {
@@ -601,15 +748,16 @@ type Event struct {
 	Duration        time.Duration
 	EstimatedTokens int
 	// TokenUsage reports provider or custom-model token counts when available.
-	TokenUsage          TokenUsage
-	ProviderDiagnostics ProviderDiagnostics
-	Approved            bool
-	ApprovalReason      string
-	ErrorCategory       ErrorCategory
-	Message             Message
-	ToolCall            ToolCall
-	ToolResult          ToolResult
-	Error               error
+	TokenUsage            TokenUsage
+	ProviderDiagnostics   ProviderDiagnostics
+	ModelErrorSubcategory ModelErrorSubcategory
+	Approved              bool
+	ApprovalReason        string
+	ErrorCategory         ErrorCategory
+	Message               Message
+	ToolCall              ToolCall
+	ToolResult            ToolResult
+	Error                 error
 }
 
 // Hook observes or rejects lifecycle events.
@@ -657,36 +805,39 @@ type Observation struct {
 	TokenUsage TokenUsage
 	// ProviderDiagnostics reports safe provider metadata for model failures.
 	ProviderDiagnostics ProviderDiagnostics
-	Approved            bool
-	ApprovalReason      string
-	ErrorCategory       ErrorCategory
-	Failed              bool
+	// ModelErrorSubcategory refines ErrorCategoryModel for safe alert grouping.
+	ModelErrorSubcategory ModelErrorSubcategory
+	Approved              bool
+	ApprovalReason        string
+	ErrorCategory         ErrorCategory
+	Failed                bool
 }
 
 // ObservationFromEvent converts a lifecycle event into safe telemetry metadata.
 func ObservationFromEvent(event Event) Observation {
 	return Observation{
-		Type:                event.Type,
-		AgentID:             event.AgentID,
-		RunID:               event.RunID,
-		SubagentID:          event.SubagentID,
-		ToolName:            event.ToolName,
-		ToolRisk:            event.ToolRisk,
-		SkillName:           event.SkillName,
-		TraceID:             event.TraceID,
-		SpanID:              event.SpanID,
-		TraceState:          event.TraceState,
-		RequestID:           event.RequestID,
-		ParentRequestID:     event.ParentRequestID,
-		Round:               event.Round,
-		Duration:            event.Duration,
-		EstimatedTokens:     event.EstimatedTokens,
-		TokenUsage:          event.TokenUsage,
-		ProviderDiagnostics: event.ProviderDiagnostics,
-		Approved:            event.Approved,
-		ApprovalReason:      event.ApprovalReason,
-		ErrorCategory:       event.ErrorCategory,
-		Failed:              event.Error != nil || event.ErrorCategory != "",
+		Type:                  event.Type,
+		AgentID:               event.AgentID,
+		RunID:                 event.RunID,
+		SubagentID:            event.SubagentID,
+		ToolName:              event.ToolName,
+		ToolRisk:              event.ToolRisk,
+		SkillName:             event.SkillName,
+		TraceID:               event.TraceID,
+		SpanID:                event.SpanID,
+		TraceState:            event.TraceState,
+		RequestID:             event.RequestID,
+		ParentRequestID:       event.ParentRequestID,
+		Round:                 event.Round,
+		Duration:              event.Duration,
+		EstimatedTokens:       event.EstimatedTokens,
+		TokenUsage:            event.TokenUsage,
+		ProviderDiagnostics:   event.ProviderDiagnostics,
+		ModelErrorSubcategory: event.ModelErrorSubcategory,
+		Approved:              event.Approved,
+		ApprovalReason:        event.ApprovalReason,
+		ErrorCategory:         event.ErrorCategory,
+		Failed:                event.Error != nil || event.ErrorCategory != "",
 	}
 }
 
