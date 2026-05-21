@@ -39,6 +39,29 @@ SDK 会把 `TraceID`、`SpanID` 和 `TraceState` 传播到 events、observations
 `AgentError`。如果没有传入 `WithRunID`，SDK 仍会生成 run ID，而不会用
 `TraceID` 替代它。
 
+## Request IDs
+
+默认 request ID 保持现有 `<agent-id>-request-<sequence>` 格式。如果应用需要
+request ID 符合上游日志或 tracing 规范，可以安装 `WithRequestIDGenerator`：
+
+```go
+bot, err := agent.New(cfg, model,
+	agent.WithRequestIDGenerator(func(ctx agent.RequestIDContext) string {
+		return fmt.Sprintf("%s.%s.%d", ctx.RunID, ctx.Operation, ctx.Sequence)
+	}),
+)
+```
+
+`RequestIDContext` 只包含安全关联字段：agent ID、run ID、trace metadata、event
+type、operation、本地 sequence、round、parent request ID、tool name 和
+subagent ID。它不会包含 prompts、message content、tool arguments、tool results、
+raw errors、credentials、provider URL 或 MCP settings。
+
+生成器应返回非空 ID。如果返回空字符串、只包含空白字符，或发生 panic，SDK 会对该
+request 回退到默认 ID。向 `WithRequestIDGenerator` 传入 nil generator 会返回配置错误。
+SDK 不会对自定义 ID 去重；如果生成器多次返回同一个值，observations 和
+`ParentRequestID` 会原样保留该值。
+
 ## Observers
 
 ```go

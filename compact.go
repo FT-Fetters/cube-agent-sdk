@@ -36,7 +36,12 @@ func (a *Agent) maybeCompact(ctx context.Context, round int, parentRequestID str
 	if compactor == nil {
 		return nil
 	}
-	requestID := a.nextRequestID()
+	requestID := a.nextRequestID(ctx, RequestIDContext{
+		EventType:       EventBeforeCompact,
+		Operation:       requestOperationCompactContext,
+		Round:           round,
+		ParentRequestID: parentRequestID,
+	})
 	if err := a.emit(ctx, Event{
 		Type:            EventBeforeCompact,
 		RequestID:       requestID,

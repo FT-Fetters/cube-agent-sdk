@@ -50,7 +50,11 @@ func (a *Agent) SpawnSubagent(ctx context.Context, options SubagentOptions) (*Ag
 		wrapped.RunID = runIDFromContext(ctx)
 		setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
 		wrapped.SubagentID = options.ID
-		wrapped.RequestID = a.nextRequestID()
+		wrapped.RequestID = a.nextRequestID(ctx, RequestIDContext{
+			EventType:  EventSubagentMessage,
+			Operation:  requestOperationSubagentSpawn,
+			SubagentID: options.ID,
+		})
 		return nil, wrapped
 	}
 	model := options.Model
@@ -75,6 +79,7 @@ func (a *Agent) SpawnSubagent(ctx context.Context, options SubagentOptions) (*Ag
 	parentCompactor := a.compactor
 	parentCounter := a.tokenCount
 	parentApproval := a.approval
+	parentRequestIDGenerator := a.requestIDGenerator
 	a.mu.Unlock()
 
 	childOptions := []Option{
@@ -87,6 +92,9 @@ func (a *Agent) SpawnSubagent(ctx context.Context, options SubagentOptions) (*Ag
 	}
 	if parentCompactor != nil {
 		childOptions = append(childOptions, WithCompactor(parentCompactor))
+	}
+	if parentRequestIDGenerator != nil {
+		childOptions = append(childOptions, WithRequestIDGenerator(parentRequestIDGenerator))
 	}
 	child, err := New(childConfig, model, childOptions...)
 	if err != nil {
@@ -118,7 +126,11 @@ func (a *Agent) SpawnSubagent(ctx context.Context, options SubagentOptions) (*Ag
 	if err := a.emit(ctx, Event{
 		Type:       EventSubagentMessage,
 		SubagentID: options.ID,
-		RequestID:  a.nextRequestID(),
+		RequestID: a.nextRequestID(ctx, RequestIDContext{
+			EventType:  EventSubagentMessage,
+			Operation:  requestOperationSubagentSpawn,
+			SubagentID: options.ID,
+		}),
 	}); err != nil {
 		return nil, err
 	}
@@ -130,8 +142,12 @@ func (a *Agent) SendMessageToSubagent(ctx context.Context, id string, content st
 	a.mu.Lock()
 	child := a.subagents[id]
 	a.mu.Unlock()
-	requestID := a.nextRequestID()
 	if child == nil {
+		requestID := a.nextRequestID(ctx, RequestIDContext{
+			EventType:  EventSubagentMessage,
+			Operation:  requestOperationSubagentLookup,
+			SubagentID: id,
+		})
 		cause := fmt.Errorf("%w: %s", ErrSubagentNotFound, id)
 		wrapped := agentError(ErrorCategorySubagent, "subagent.lookup", cause)
 		wrapped.AgentID = a.agentID()
@@ -147,6 +163,11 @@ func (a *Agent) SendMessageToSubagent(ctx context.Context, id string, content st
 		}
 		return Message{}, wrapped
 	}
+	requestID := a.nextRequestID(ctx, RequestIDContext{
+		EventType:  EventSubagentMessage,
+		Operation:  requestOperationSubagentRun,
+		SubagentID: id,
+	})
 	started := time.Now()
 	response, err := child.Run(ctx, content, options...)
 	if err != nil {
@@ -196,8 +217,12 @@ func (a *Agent) SendToParent(ctx context.Context, content string) error {
 	return parent.emit(ctx, Event{
 		Type:       EventSubagentMessage,
 		SubagentID: from,
-		RequestID:  parent.nextRequestID(),
-		Message:    message.Message,
+		RequestID: parent.nextRequestID(ctx, RequestIDContext{
+			EventType:  EventSubagentMessage,
+			Operation:  requestOperationSubagentParent,
+			SubagentID: from,
+		}),
+		Message: message.Message,
 	})
 }
 

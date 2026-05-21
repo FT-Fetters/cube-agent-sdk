@@ -79,7 +79,7 @@
 - [x] **21. Define telemetry attribute naming conventions.**
   Document stable attribute names for logs, metrics, and traces, such as `agent.id`, `agent.run_id`, `agent.request_id`, and `agent.error.category`.
 
-- [ ] **22. Allow custom request ID generation.**
+- [x] **22. Allow custom request ID generation.**
   Let applications override the default request ID generator for deterministic tests and cross-service correlation.
 
 - [ ] **23. Add production observability documentation.**

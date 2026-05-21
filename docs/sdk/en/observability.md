@@ -41,6 +41,33 @@ The SDK propagates `TraceID`, `SpanID`, and `TraceState` to events,
 observations, and `AgentError` values. If `WithRunID` is not supplied, the SDK
 still generates a run ID instead of replacing it with `TraceID`.
 
+## Request IDs
+
+By default, request IDs keep the existing `<agent-id>-request-<sequence>`
+format. Install `WithRequestIDGenerator` when an application needs request IDs
+to match an upstream logging or tracing convention:
+
+```go
+bot, err := agent.New(cfg, model,
+	agent.WithRequestIDGenerator(func(ctx agent.RequestIDContext) string {
+		return fmt.Sprintf("%s.%s.%d", ctx.RunID, ctx.Operation, ctx.Sequence)
+	}),
+)
+```
+
+`RequestIDContext` contains safe correlation fields only: agent ID, run ID,
+trace metadata, event type, operation, local sequence, round, parent request
+ID, tool name, and subagent ID. It never includes prompts, message content,
+tool arguments, tool results, raw errors, credentials, provider URLs, or MCP
+settings.
+
+The generator should return a non-empty ID. If it returns an empty or
+whitespace-only string, or if it panics, the SDK falls back to the default ID for
+that request. Passing a nil generator to `WithRequestIDGenerator` returns a
+configuration error. The SDK does not de-duplicate custom IDs; if a generator
+returns the same value more than once, observations and `ParentRequestID` keep
+that value exactly as returned.
+
 ## Observers
 
 ```go

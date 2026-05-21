@@ -222,6 +222,9 @@
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
+- `RequestIDGenerator`
+- `RequestIDContext`
+- `WithRequestIDGenerator`
 - `TraceContext`
 - `WithTraceContext`
 - `TraceContextFromContext`
@@ -235,6 +238,9 @@ after-tool observations 也会包含 `ToolTiming`，它是 `ToolLifecycleTiming`
 `TelemetryAttr*` 常量定义稳定的 `agent.*` 日志、trace 和自定义 observer 属性名。
 `TelemetryMetricLabel*` 常量定义稳定的 `MetricsObserver` label 名称。清单 helper
 会返回副本，供测试、文档和需要漂移检测的集成使用。
+`WithRequestIDGenerator` 允许应用基于安全 metadata 生成 request ID，例如 agent
+ID、run ID、trace metadata、event type、operation、sequence、round、parent
+request ID、tool name 和 subagent ID。生成器返回空值时会回退到默认 request ID 格式。
 
 ## 错误
 

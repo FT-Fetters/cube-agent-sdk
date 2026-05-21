@@ -160,6 +160,8 @@ The SDK provides:
 - Sanitized observations and structured lifecycle events.
 - Stable telemetry attribute and metric label names for logs, metrics, and
   traces.
+- Custom request ID generation from safe lifecycle metadata for application
+  tracing and logging conventions.
 - Structured `AgentError` values and sentinel errors.
 
 Applications provide:

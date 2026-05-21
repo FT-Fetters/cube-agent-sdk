@@ -111,6 +111,7 @@ func (a *Agent) Fork(id string) (*Agent, error) {
 	observer := a.observer
 	compactor := a.compactor
 	tokenCount := a.tokenCount
+	requestIDGenerator := a.requestIDGenerator
 	a.mu.Unlock()
 
 	fork, err := New(config, model)
@@ -132,6 +133,7 @@ func (a *Agent) Fork(id string) (*Agent, error) {
 	fork.observer = observer
 	fork.compactor = compactor
 	fork.tokenCount = tokenCount
+	fork.requestIDGenerator = requestIDGenerator
 	fork.parent = nil
 	fork.subagents = make(map[string]*Agent)
 	fork.parentInbox = make(map[string][]SubagentMessage)

@@ -14,7 +14,13 @@ var (
 )
 
 func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, parentRequestID string) (ToolResult, error) {
-	requestID := a.nextRequestID()
+	requestID := a.nextRequestID(ctx, RequestIDContext{
+		EventType:       EventBeforeApproval,
+		Operation:       requestOperationToolCall,
+		Round:           round,
+		ParentRequestID: parentRequestID,
+		ToolName:        call.Name,
+	})
 	started := time.Now()
 	timing := ToolLifecycleTiming{}
 	estimatedTokens := a.estimatedToolCallTokens(call, ToolResult{})

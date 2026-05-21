@@ -34,15 +34,16 @@ type Agent struct {
 
 	mcpServers []MCPServerConfig
 
-	approval    ApprovalPolicy
-	hooks       []Hook
-	observer    Observer
-	compactor   Compactor
-	tokenCount  TokenCounter
-	runSeq      uint64
-	requestSeq  uint64
-	subagents   map[string]*Agent
-	parentInbox map[string][]SubagentMessage
+	approval           ApprovalPolicy
+	hooks              []Hook
+	observer           Observer
+	compactor          Compactor
+	tokenCount         TokenCounter
+	requestIDGenerator RequestIDGenerator
+	runSeq             uint64
+	requestSeq         uint64
+	subagents          map[string]*Agent
+	parentInbox        map[string][]SubagentMessage
 }
 
 // Option customizes an Agent during construction.
@@ -51,11 +52,54 @@ type Option func(*Agent) error
 // RunOption customizes a single Agent run.
 type RunOption func(*runConfig)
 
+// RequestIDGenerator builds request correlation IDs from safe lifecycle metadata.
+// Returning an empty ID falls back to the SDK's default ID format.
+type RequestIDGenerator func(RequestIDContext) string
+
+// RequestIDContext contains safe metadata available to custom request ID generators.
+// It intentionally excludes prompts, messages, tool arguments, tool results, and raw errors.
+type RequestIDContext struct {
+	// AgentID is the agent emitting the lifecycle request.
+	AgentID string
+	// RunID is the correlation ID for the current Run or RunStream call.
+	RunID string
+	// TraceID, SpanID, and TraceState come from WithTraceContext when present.
+	TraceID    string
+	SpanID     string
+	TraceState string
+	// EventType is the first lifecycle event that will use the generated ID.
+	EventType EventType
+	// Operation describes the logical request, such as model.generate or tool.call.
+	Operation string
+	// Sequence is the SDK-local request sequence for default-compatible ordering.
+	Sequence uint64
+	// Round is the model/tool round when the request belongs to a run loop.
+	Round int
+	// ParentRequestID links nested requests to the request that caused them.
+	ParentRequestID string
+	// ToolName is set for tool and approval request IDs.
+	ToolName string
+	// SubagentID is set for subagent lifecycle request IDs.
+	SubagentID string
+}
+
 type runConfig struct {
 	skillNames             []string
 	runID                  string
 	observeStreamLifecycle bool
 }
+
+const (
+	requestOperationModelGenerate     = "model.generate"
+	requestOperationModelStream       = "model.stream"
+	requestOperationStreamUnsupported = "stream.unsupported"
+	requestOperationToolCall          = "tool.call"
+	requestOperationCompactContext    = "compact.context"
+	requestOperationSubagentSpawn     = "subagent.spawn"
+	requestOperationSubagentRun       = "subagent.run"
+	requestOperationSubagentLookup    = "subagent.lookup"
+	requestOperationSubagentParent    = "subagent.parent"
+)
 
 type runIDContextKey struct{}
 
@@ -192,6 +236,21 @@ func WithObserver(observer Observer) Option {
 			return errors.New("agent: observer is nil")
 		}
 		agent.observer = observer
+		return nil
+	}
+}
+
+// WithRequestIDGenerator installs a custom request correlation ID generator.
+// The generator receives only sanitized lifecycle metadata. If it returns an
+// empty ID or panics, the SDK uses its default request ID for that request.
+// Custom IDs are not de-duplicated; generators should enforce any uniqueness
+// requirement required by the application.
+func WithRequestIDGenerator(generator RequestIDGenerator) Option {
+	return func(agent *Agent) error {
+		if generator == nil {
+			return errors.New("agent: request ID generator is nil")
+		}
+		agent.requestIDGenerator = generator
 		return nil
 	}
 }
@@ -336,8 +395,13 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 	for round := 0; ; round++ {
 		roundNumber := round + 1
 		request := a.buildModelRequest(activeSkills)
-		requestID := a.nextRequestID()
 		parentRequestID := previousModelRequestID
+		requestID := a.nextRequestID(ctx, RequestIDContext{
+			EventType:       EventBeforeModel,
+			Operation:       requestOperationModelGenerate,
+			Round:           roundNumber,
+			ParentRequestID: parentRequestID,
+		})
 		estimatedTokens := a.estimatedTokens(request.Messages)
 		if err := a.emit(ctx, Event{
 			Type:            EventBeforeModel,
@@ -447,8 +511,12 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		wrapped.AgentID = a.agentID()
 		wrapped.RunID = runIDFromContext(ctx)
 		setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
-		wrapped.RequestID = a.nextRequestID()
 		wrapped.Round = 1
+		wrapped.RequestID = a.nextRequestID(ctx, RequestIDContext{
+			EventType: EventAfterModel,
+			Operation: requestOperationStreamUnsupported,
+			Round:     wrapped.Round,
+		})
 		estimatedTokens := a.estimatedInputTokens(input)
 		duration := eventDurationSince(started)
 		// Unsupported streaming returns before normal model hooks can run, so
@@ -490,7 +558,11 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 	}
 
 	request := a.buildModelRequest(activeSkills)
-	requestID := a.nextRequestID()
+	requestID := a.nextRequestID(ctx, RequestIDContext{
+		EventType: EventBeforeModel,
+		Operation: requestOperationModelStream,
+		Round:     1,
+	})
 	estimatedTokens := a.estimatedTokens(request.Messages)
 	if err := a.emit(ctx, Event{
 		Type:            EventBeforeModel,
@@ -990,9 +1062,57 @@ func (a *Agent) agentID() string {
 	return a.id
 }
 
-func (a *Agent) nextRequestID() string {
+func (a *Agent) nextRequestID(ctx context.Context, metadata RequestIDContext) string {
 	sequence := atomic.AddUint64(&a.requestSeq, 1)
-	return fmt.Sprintf("%s-request-%d", a.agentID(), sequence)
+	a.mu.Lock()
+	agentID := a.id
+	generator := a.requestIDGenerator
+	a.mu.Unlock()
+
+	defaultID := defaultRequestID(agentID, sequence)
+	if generator == nil {
+		return defaultID
+	}
+	metadata = normalizeRequestIDContext(ctx, metadata, agentID, sequence)
+	return generatedRequestID(generator, metadata, defaultID)
+}
+
+func defaultRequestID(agentID string, sequence uint64) string {
+	return fmt.Sprintf("%s-request-%d", agentID, sequence)
+}
+
+func normalizeRequestIDContext(ctx context.Context, metadata RequestIDContext, agentID string, sequence uint64) RequestIDContext {
+	if metadata.AgentID == "" {
+		metadata.AgentID = agentID
+	}
+	if metadata.RunID == "" {
+		metadata.RunID = runIDFromContext(ctx)
+	}
+	trace := traceContextFromContext(ctx)
+	if metadata.TraceID == "" {
+		metadata.TraceID = trace.TraceID
+	}
+	if metadata.SpanID == "" {
+		metadata.SpanID = trace.SpanID
+	}
+	if metadata.TraceState == "" {
+		metadata.TraceState = trace.TraceState
+	}
+	metadata.Sequence = sequence
+	return metadata
+}
+
+func generatedRequestID(generator RequestIDGenerator, metadata RequestIDContext, defaultID string) (requestID string) {
+	defer func() {
+		if recover() != nil {
+			requestID = defaultID
+		}
+	}()
+	requestID = strings.TrimSpace(generator(metadata))
+	if requestID == "" {
+		return defaultID
+	}
+	return requestID
 }
 
 func (a *Agent) runID(config runConfig) string {

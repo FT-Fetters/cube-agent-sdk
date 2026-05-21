@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -377,6 +378,248 @@ func TestAgentGeneratesStableRunIDsPerRun(t *testing.T) {
 	want := []string{"generated-agent-run-1", "generated-agent-run-2"}
 	if !reflect.DeepEqual(runIDs, want) {
 		t.Fatalf("generated run IDs = %#v, want %#v", runIDs, want)
+	}
+}
+
+func TestAgentUsesCustomRequestIDGeneratorForRunLifecycle(t *testing.T) {
+	trace := TraceContext{
+		TraceID:    "trace-custom-request",
+		SpanID:     "span-custom-request",
+		TraceState: "vendor=custom",
+	}
+	ctx := WithTraceContext(context.Background(), trace)
+
+	model := &recordingModel{responses: []ModelResponse{
+		{ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "hello"}}}},
+		{Message: Message{Role: RoleAssistant, Content: "done"}},
+	}}
+	childModel := &recordingModel{responses: []ModelResponse{
+		{Message: Message{Role: RoleAssistant, Content: "child done"}},
+	}}
+	compactor := &recordingCompactor{
+		result: []Message{{Role: RoleSystem, Content: "summary"}},
+	}
+	var contexts []RequestIDContext
+	var events []Event
+	var bot *Agent
+	var spawned bool
+
+	var err error
+	bot, err = New(Config{
+		ID:           "custom-agent",
+		SystemPrompt: "base",
+		Compact: CompactConfig{
+			MaxTokens: 2,
+			Threshold: 1,
+		},
+	}, model,
+		WithRequestIDGenerator(func(metadata RequestIDContext) string {
+			contexts = append(contexts, metadata)
+			operation := strings.ReplaceAll(metadata.Operation, ".", "-")
+			return fmt.Sprintf("req-%s-%d-%s", metadata.AgentID, metadata.Sequence, operation)
+		}),
+		WithCompactor(compactor),
+		WithTokenCounter(TokenCounterFunc(func(Message) int { return 1 })),
+		WithTools(ToolFunc{
+			ToolName:        "echo",
+			ToolDescription: "Echo text",
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				if !spawned {
+					spawned = true
+					if _, err := bot.SpawnSubagent(ctx, SubagentOptions{
+						ID:    "worker-1",
+						Model: childModel,
+					}); err != nil {
+						return ToolResult{}, err
+					}
+					if _, err := bot.SendMessageToSubagent(ctx, "worker-1", "start"); err != nil {
+						return ToolResult{}, err
+					}
+				}
+				return ToolResult{CallID: call.ID, Name: call.Name, Content: call.Arguments["text"].(string)}, nil
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.AppendMessage(Message{Role: RoleUser, Content: "before"})
+
+	if _, err := bot.Run(ctx, "use echo", WithRunID("custom-run")); err != nil {
+		t.Fatal(err)
+	}
+
+	compactContext := firstRequestIDContext(t, contexts, "custom-agent", "compact.context")
+	if compactContext.RunID != "custom-run" || compactContext.EventType != EventBeforeCompact || compactContext.Round != 1 {
+		t.Fatalf("compact request context = %#v, want custom run, before compact, and round 1", compactContext)
+	}
+	assertRequestIDContextTraceContext(t, compactContext, trace)
+
+	modelContext := firstRequestIDContext(t, contexts, "custom-agent", "model.generate")
+	if modelContext.RunID != "custom-run" || modelContext.EventType != EventBeforeModel || modelContext.Round != 1 || modelContext.ParentRequestID != "" {
+		t.Fatalf("model request context = %#v, want custom run, before model, round 1, and empty parent", modelContext)
+	}
+	assertRequestIDContextTraceContext(t, modelContext, trace)
+
+	toolContext := firstRequestIDContext(t, contexts, "custom-agent", "tool.call")
+	if toolContext.RunID != "custom-run" || toolContext.EventType != EventBeforeApproval || toolContext.Round != 1 || toolContext.ToolName != "echo" {
+		t.Fatalf("tool request context = %#v, want custom run, approval entry event, round 1, and tool name", toolContext)
+	}
+	assertRequestIDContextTraceContext(t, toolContext, trace)
+
+	spawnContext := firstRequestIDContext(t, contexts, "custom-agent", "subagent.spawn")
+	if spawnContext.RunID != "custom-run" || spawnContext.EventType != EventSubagentMessage || spawnContext.SubagentID != "worker-1" {
+		t.Fatalf("spawn request context = %#v, want custom run, subagent event, and subagent ID", spawnContext)
+	}
+	assertRequestIDContextTraceContext(t, spawnContext, trace)
+
+	runContext := firstRequestIDContext(t, contexts, "custom-agent", "subagent.run")
+	if runContext.RunID != "custom-run" || runContext.EventType != EventSubagentMessage || runContext.SubagentID != "worker-1" {
+		t.Fatalf("subagent run request context = %#v, want custom run, subagent event, and subagent ID", runContext)
+	}
+	assertRequestIDContextTraceContext(t, runContext, trace)
+
+	childModelContext := firstRequestIDContext(t, contexts, "worker-1", "model.generate")
+	if childModelContext.RunID != "worker-1-run-1" || childModelContext.EventType != EventBeforeModel || childModelContext.Round != 1 {
+		t.Fatalf("child model request context = %#v, want inherited generator with child run", childModelContext)
+	}
+	assertRequestIDContextTraceContext(t, childModelContext, trace)
+
+	firstModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 1)
+	beforeApproval := firstEventOfTypeAndRound(t, events, EventBeforeApproval, 1)
+	beforeTool := firstEventOfTypeAndRound(t, events, EventBeforeTool, 1)
+	secondModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 2)
+	if firstModel.RequestID != "req-custom-agent-2-model-generate" {
+		t.Fatalf("first model request ID = %q, want generated request ID", firstModel.RequestID)
+	}
+	if beforeApproval.RequestID != "req-custom-agent-3-tool-call" || beforeTool.RequestID != beforeApproval.RequestID {
+		t.Fatalf("tool request IDs = %q/%q, want one generated request ID for approval and tool", beforeApproval.RequestID, beforeTool.RequestID)
+	}
+	if beforeApproval.ParentRequestID != firstModel.RequestID || beforeTool.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("tool parent request IDs = %q/%q, want first model request ID %q", beforeApproval.ParentRequestID, beforeTool.ParentRequestID, firstModel.RequestID)
+	}
+	if secondModel.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("second model parent request ID = %q, want first model request ID %q", secondModel.ParentRequestID, firstModel.RequestID)
+	}
+}
+
+func TestAgentRunStreamUsesCustomRequestIDGenerator(t *testing.T) {
+	trace := TraceContext{
+		TraceID:    "trace-stream-request",
+		SpanID:     "span-stream-request",
+		TraceState: "vendor=stream",
+	}
+	ctx := WithTraceContext(context.Background(), trace)
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "hel"},
+		{Type: StreamEventDelta, Delta: "lo"},
+		{Type: StreamEventDone},
+	}}
+	recorder := &recordingObserver{}
+	var contexts []RequestIDContext
+	var events []Event
+	agent, err := New(Config{ID: "stream-agent"}, model,
+		WithRequestIDGenerator(func(metadata RequestIDContext) string {
+			contexts = append(contexts, metadata)
+			operation := strings.ReplaceAll(metadata.Operation, ".", "-")
+			return fmt.Sprintf("stream-%s-%d-%s", metadata.AgentID, metadata.Sequence, operation)
+		}),
+		WithObserver(recorder),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start", WithRunID("stream-run"), WithStreamObservations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 3 {
+		t.Fatalf("stream events = %#v, want delta, delta, done", got)
+	}
+
+	requestContext := firstRequestIDContext(t, contexts, "stream-agent", "model.stream")
+	if requestContext.RunID != "stream-run" || requestContext.EventType != EventBeforeModel || requestContext.Round != 1 || requestContext.ParentRequestID != "" {
+		t.Fatalf("stream request context = %#v, want run, before model, round 1, and empty parent", requestContext)
+	}
+	assertRequestIDContextTraceContext(t, requestContext, trace)
+
+	beforeModel := firstEventOfType(t, events, EventBeforeModel)
+	afterModel := firstEventOfType(t, events, EventAfterModel)
+	wantRequestID := "stream-stream-agent-1-model-stream"
+	if beforeModel.RequestID != wantRequestID || afterModel.RequestID != wantRequestID {
+		t.Fatalf("stream model request IDs = %q/%q, want generated request ID", beforeModel.RequestID, afterModel.RequestID)
+	}
+	for _, eventType := range []EventType{EventStreamStart, EventStreamFirstDelta, EventStreamDone} {
+		observation := firstObservationOfType(t, recorder.Observations(), eventType)
+		if observation.RequestID != wantRequestID || observation.ParentRequestID != "" {
+			t.Fatalf("%s request IDs = %q/%q, want generated request ID and empty parent", eventType, observation.RequestID, observation.ParentRequestID)
+		}
+	}
+}
+
+func TestAgentFallsBackToDefaultRequestIDWhenCustomGeneratorCannotProduceID(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		generator RequestIDGenerator
+	}{
+		{
+			name: "empty",
+			generator: func(RequestIDContext) string {
+				return " \t "
+			},
+		},
+		{
+			name: "panic",
+			generator: func(RequestIDContext) string {
+				panic("request ID generator failed")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := &recordingModel{responses: []ModelResponse{
+				{Message: Message{Role: RoleAssistant, Content: "ok"}},
+			}}
+			var events []Event
+			bot, err := New(Config{ID: "fallback-agent"}, model,
+				WithRequestIDGenerator(tt.generator),
+				WithHook(func(ctx context.Context, event Event) error {
+					events = append(events, event)
+					return nil
+				}),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := bot.Run(ctx, "hello"); err != nil {
+				t.Fatal(err)
+			}
+
+			beforeModel := firstEventOfType(t, events, EventBeforeModel)
+			afterModel := firstEventOfType(t, events, EventAfterModel)
+			if beforeModel.RequestID != "fallback-agent-request-1" || afterModel.RequestID != beforeModel.RequestID {
+				t.Fatalf("fallback request IDs = %q/%q, want default request ID", beforeModel.RequestID, afterModel.RequestID)
+			}
+		})
+	}
+}
+
+func TestWithRequestIDGeneratorRejectsNilGenerator(t *testing.T) {
+	_, err := New(Config{ID: "nil-generator-agent"}, &recordingModel{}, WithRequestIDGenerator(nil))
+	if err == nil || !strings.Contains(err.Error(), "request ID generator is nil") {
+		t.Fatalf("New error = %v, want nil request ID generator error", err)
 	}
 }
 
@@ -2708,6 +2951,31 @@ func assertAgentErrorTraceContext(t *testing.T, agentErr *AgentError, trace Trac
 			agentErr.TraceID,
 			agentErr.SpanID,
 			agentErr.TraceState,
+			trace.TraceID,
+			trace.SpanID,
+			trace.TraceState,
+		)
+	}
+}
+
+func firstRequestIDContext(t *testing.T, contexts []RequestIDContext, agentID string, operation string) RequestIDContext {
+	t.Helper()
+	for _, context := range contexts {
+		if context.AgentID == agentID && context.Operation == operation {
+			return context
+		}
+	}
+	t.Fatalf("request ID contexts = %#v, want agent %q operation %q", contexts, agentID, operation)
+	return RequestIDContext{}
+}
+
+func assertRequestIDContextTraceContext(t *testing.T, context RequestIDContext, trace TraceContext) {
+	t.Helper()
+	if context.TraceID != trace.TraceID || context.SpanID != trace.SpanID || context.TraceState != trace.TraceState {
+		t.Fatalf("request ID context trace = %q/%q/%q, want %q/%q/%q",
+			context.TraceID,
+			context.SpanID,
+			context.TraceState,
 			trace.TraceID,
 			trace.SpanID,
 			trace.TraceState,

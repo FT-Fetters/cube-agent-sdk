@@ -222,6 +222,9 @@ method-level details while keeping this page as a navigation aid.
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
+- `RequestIDGenerator`
+- `RequestIDContext`
+- `WithRequestIDGenerator`
 - `TraceContext`
 - `WithTraceContext`
 - `TraceContextFromContext`
@@ -238,6 +241,10 @@ value that separates validation, approval, and execution durations while
 observer attribute names. `TelemetryMetricLabel*` constants define the stable
 `MetricsObserver` label names. The list helpers return copies for tests,
 documentation, and integrations that need drift detection.
+`WithRequestIDGenerator` lets applications generate request IDs from safe
+metadata such as agent ID, run ID, trace metadata, event type, operation,
+sequence, round, parent request ID, tool name, and subagent ID. Empty generator
+results fall back to the default request ID format.
 
 ## Errors
 
