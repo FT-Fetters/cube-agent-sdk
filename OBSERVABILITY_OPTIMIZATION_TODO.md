@@ -34,7 +34,7 @@
 - [x] **6. Surface real token usage in observations.**
   Expose real token usage on observations separately from `EstimatedTokens`, using estimate values only when provider usage is unavailable.
 
-- [ ] **7. Add safe provider diagnostics to model errors.**
+- [x] **7. Add safe provider diagnostics to model errors.**
   Include safe provider diagnostics such as provider name, HTTP status, endpoint host, and provider request ID without exposing sensitive request or response content.
 
 - [ ] **8. Capture common diagnostic response headers.**

@@ -947,6 +947,11 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 	if event.Error != nil && event.ErrorCategory == "" {
 		event.ErrorCategory = classifyError(event.Error)
 	}
+	if event.Error != nil && event.ProviderDiagnostics.IsZero() {
+		if diagnostics, ok := ProviderDiagnosticsFromError(event.Error); ok {
+			event.ProviderDiagnostics = diagnostics
+		}
+	}
 	setAgentErrorRunID(event.Error, event.RunID)
 	setAgentErrorTraceContext(event.Error, trace)
 	setAgentErrorParentRequestID(event.Error, event.ParentRequestID)

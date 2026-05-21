@@ -237,6 +237,7 @@ func TestAnthropicMessagesModelReturnsNon2xxErrorWithoutLeakingKey(t *testing.T)
 		if got := r.Header.Get("x-api-key"); got != "test-key" {
 			t.Fatalf("x-api-key = %q, want test-key", got)
 		}
+		w.Header().Set("Request-Id", "anthropic-request-1")
 		http.Error(w, "provider rejected test-key", http.StatusUnauthorized)
 	}))
 	defer server.Close()
@@ -255,11 +256,21 @@ func TestAnthropicMessagesModelReturnsNon2xxErrorWithoutLeakingKey(t *testing.T)
 	if err == nil {
 		t.Fatal("Generate returned nil error, want non-2xx error")
 	}
-	if !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "provider rejected") {
-		t.Fatalf("error = %v, want status and response body summary", err)
+	if !strings.Contains(err.Error(), "401") {
+		t.Fatalf("error = %v, want status", err)
 	}
-	if strings.Contains(err.Error(), "test-key") {
-		t.Fatalf("error exposed API key: %v", err)
+	if strings.Contains(err.Error(), "provider rejected") || strings.Contains(err.Error(), "test-key") {
+		t.Fatalf("error exposed unsafe provider detail: %v", err)
+	}
+	want := ProviderDiagnostics{
+		Provider:     "anthropic-messages",
+		HTTPStatus:   http.StatusUnauthorized,
+		EndpointHost: server.Listener.Addr().String(),
+		RequestID:    "anthropic-request-1",
+	}
+	got, ok := ProviderDiagnosticsFromError(err)
+	if !ok || got != want {
+		t.Fatalf("provider diagnostics = %#v/%t, want %#v/true", got, ok, want)
 	}
 }
 

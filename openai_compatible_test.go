@@ -280,6 +280,7 @@ func TestOpenAICompatibleModelReturnsNon2xxError(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
 			t.Fatalf("Authorization header = %q, want Bearer test-key", got)
 		}
+		w.Header().Set("X-Request-Id", "chat-request-1")
 		http.Error(w, "provider rejected request", http.StatusUnauthorized)
 	}))
 	defer server.Close()
@@ -297,11 +298,21 @@ func TestOpenAICompatibleModelReturnsNon2xxError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Generate returned nil error, want non-2xx error")
 	}
-	if !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "provider rejected request") {
-		t.Fatalf("error = %v, want status and response body summary", err)
+	if !strings.Contains(err.Error(), "401") {
+		t.Fatalf("error = %v, want status", err)
 	}
-	if strings.Contains(err.Error(), "Bearer test-key") {
-		t.Fatalf("error exposed authorization header: %v", err)
+	if strings.Contains(err.Error(), "provider rejected request") || strings.Contains(err.Error(), "Bearer test-key") {
+		t.Fatalf("error exposed unsafe provider detail: %v", err)
+	}
+	want := ProviderDiagnostics{
+		Provider:     "openai-compatible",
+		HTTPStatus:   http.StatusUnauthorized,
+		EndpointHost: server.Listener.Addr().String(),
+		RequestID:    "chat-request-1",
+	}
+	got, ok := ProviderDiagnosticsFromError(err)
+	if !ok || got != want {
+		t.Fatalf("provider diagnostics = %#v/%t, want %#v/true", got, ok, want)
 	}
 }
 

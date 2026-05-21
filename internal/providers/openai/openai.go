@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/cubence/cube-agent-sdk/internal/core"
+	providerdiagnostics "github.com/cubence/cube-agent-sdk/internal/providers/diagnostics"
 )
 
 type ModelRequest = core.ModelRequest
@@ -29,6 +29,11 @@ const (
 )
 
 const openAICompatibleChatCompletionsPath = "/chat/completions"
+
+const (
+	providerOpenAICompatible = "openai-compatible"
+	providerOpenAIResponses  = "openai-responses"
+)
 
 // OpenAICompatibleConfig configures a chat completions endpoint that follows
 // OpenAI's request and response shape.
@@ -74,18 +79,19 @@ func (m *OpenAICompatibleModel) Generate(ctx context.Context, request ModelReque
 		return ModelResponse{}, errors.New("agent: openai-compatible model is nil")
 	}
 
+	diagnostics := providerdiagnostics.New(providerOpenAICompatible, m.endpoint)
 	payload, err := newOpenAIChatCompletionRequest(m.model, request)
 	if err != nil {
 		return ModelResponse{}, err
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: encode openai-compatible request: %w", err)
+		return ModelResponse{}, core.NewProviderError("encode openai-compatible request", diagnostics, err)
 	}
 
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, m.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: create openai-compatible request: %w", err)
+		return ModelResponse{}, core.NewProviderError("create openai-compatible request", diagnostics, err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	if m.apiKey != "" {
@@ -98,18 +104,18 @@ func (m *OpenAICompatibleModel) Generate(ctx context.Context, request ModelReque
 	}
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: call openai-compatible chat completions: %w", err)
+		return ModelResponse{}, core.NewProviderError("call openai-compatible chat completions", diagnostics, err)
 	}
 	defer httpResponse.Body.Close()
 
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
-		summary := openAICompatibleErrorSummary(httpResponse.Body, m.apiKey)
-		return ModelResponse{}, fmt.Errorf("agent: openai-compatible chat completions returned status %d: %s", httpResponse.StatusCode, summary)
+		diagnostics := providerdiagnostics.FromResponse(providerOpenAICompatible, m.endpoint, httpResponse)
+		return ModelResponse{}, core.NewProviderError(fmt.Sprintf("openai-compatible chat completions returned status %d", httpResponse.StatusCode), diagnostics, nil)
 	}
 
 	var decoded openAIChatCompletionResponse
 	if err := json.NewDecoder(httpResponse.Body).Decode(&decoded); err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: decode openai-compatible response: %w", err)
+		return ModelResponse{}, core.NewProviderError("decode openai-compatible response", diagnostics, err)
 	}
 	return decoded.modelResponse()
 }
@@ -346,25 +352,6 @@ func openAICompatibleEndpoint(rawBaseURL string) (string, error) {
 		parsed.Path = path + openAICompatibleChatCompletionsPath
 	}
 	return parsed.String(), nil
-}
-
-func openAICompatibleErrorSummary(body io.Reader, apiKey string) string {
-	limited, err := io.ReadAll(io.LimitReader(body, 4096))
-	if err != nil {
-		return "failed to read error response body"
-	}
-	summary := strings.TrimSpace(string(limited))
-	if summary == "" {
-		return "empty response body"
-	}
-	if apiKey != "" {
-		summary = strings.ReplaceAll(summary, "Bearer "+apiKey, "Bearer [redacted]")
-		summary = strings.ReplaceAll(summary, apiKey, "[redacted]")
-	}
-	if len(summary) > 512 {
-		summary = summary[:512] + "..."
-	}
-	return summary
 }
 
 func openAIToolCallLabel(name string, id string) string {

@@ -92,6 +92,107 @@ type TokenUsage struct {
 	TotalTokens int
 }
 
+// ProviderDiagnostics carries safe provider metadata for model failures. It
+// intentionally excludes request/response bodies, full URLs, credentials, and
+// raw provider error text.
+type ProviderDiagnostics struct {
+	Provider     string
+	HTTPStatus   int
+	EndpointHost string
+	RequestID    string
+}
+
+// IsZero reports whether diagnostics contain no usable metadata.
+func (d ProviderDiagnostics) IsZero() bool {
+	return normalizeProviderDiagnostics(d) == ProviderDiagnostics{}
+}
+
+// ProviderDiagnosticsError is implemented by errors that expose sanitized
+// provider metadata without requiring callers to inspect raw provider text.
+type ProviderDiagnosticsError interface {
+	SafeProviderDiagnostics() ProviderDiagnostics
+}
+
+// ProviderError is returned by built-in provider adapters when safe diagnostic
+// metadata is available. Error intentionally omits the wrapped cause text; use
+// Unwrap, errors.Is, or errors.As when programmatic access to the cause is
+// needed.
+type ProviderError struct {
+	Message     string
+	Diagnostics ProviderDiagnostics
+	Cause       error
+}
+
+// NewProviderError wraps a provider failure with safe diagnostic metadata.
+func NewProviderError(message string, diagnostics ProviderDiagnostics, cause error) *ProviderError {
+	return &ProviderError{
+		Message:     strings.TrimSpace(message),
+		Diagnostics: normalizeProviderDiagnostics(diagnostics),
+		Cause:       cause,
+	}
+}
+
+func (e *ProviderError) Error() string {
+	if e == nil {
+		return ""
+	}
+	message := strings.TrimSpace(e.Message)
+	if message == "" {
+		message = "provider error"
+	}
+	return "agent: " + message
+}
+
+func (e *ProviderError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *ProviderError) SafeProviderDiagnostics() ProviderDiagnostics {
+	if e == nil {
+		return ProviderDiagnostics{}
+	}
+	return normalizeProviderDiagnostics(e.Diagnostics)
+}
+
+// ProviderDiagnosticsFromError extracts safe provider diagnostics from an error
+// chain when a built-in provider or custom model error exposes them.
+func ProviderDiagnosticsFromError(err error) (ProviderDiagnostics, bool) {
+	if err == nil {
+		return ProviderDiagnostics{}, false
+	}
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) {
+		if diagnostics := normalizeProviderDiagnostics(agentErr.ProviderDiagnostics); !diagnostics.IsZero() {
+			return diagnostics, true
+		}
+		if agentErr.Cause != nil {
+			if diagnostics, ok := ProviderDiagnosticsFromError(agentErr.Cause); ok {
+				return diagnostics, true
+			}
+		}
+	}
+	var providerErr ProviderDiagnosticsError
+	if errors.As(err, &providerErr) {
+		if diagnostics := normalizeProviderDiagnostics(providerErr.SafeProviderDiagnostics()); !diagnostics.IsZero() {
+			return diagnostics, true
+		}
+	}
+	return ProviderDiagnostics{}, false
+}
+
+func normalizeProviderDiagnostics(diagnostics ProviderDiagnostics) ProviderDiagnostics {
+	diagnostics.Provider = strings.TrimSpace(diagnostics.Provider)
+	diagnostics.EndpointHost = strings.TrimSpace(diagnostics.EndpointHost)
+	diagnostics.RequestID = strings.TrimSpace(diagnostics.RequestID)
+	if diagnostics.HTTPStatus < 100 || diagnostics.HTTPStatus > 999 {
+		diagnostics.HTTPStatus = 0
+	}
+	return diagnostics
+}
+
 // ModelResponse is the model output. It may return a final assistant message or tool calls.
 type ModelResponse struct {
 	Message   Message
@@ -420,11 +521,12 @@ type AgentError struct {
 	TraceState string
 	RequestID  string
 	// ParentRequestID links nested failures to the request that caused them.
-	ParentRequestID string
-	ToolName        string
-	SubagentID      string
-	Round           int
-	Cause           error
+	ParentRequestID     string
+	ToolName            string
+	SubagentID          string
+	Round               int
+	ProviderDiagnostics ProviderDiagnostics
+	Cause               error
 }
 
 func (e *AgentError) Error() string {
@@ -490,14 +592,15 @@ type Event struct {
 	Duration        time.Duration
 	EstimatedTokens int
 	// TokenUsage reports provider or custom-model token counts when available.
-	TokenUsage     TokenUsage
-	Approved       bool
-	ApprovalReason string
-	ErrorCategory  ErrorCategory
-	Message        Message
-	ToolCall       ToolCall
-	ToolResult     ToolResult
-	Error          error
+	TokenUsage          TokenUsage
+	ProviderDiagnostics ProviderDiagnostics
+	Approved            bool
+	ApprovalReason      string
+	ErrorCategory       ErrorCategory
+	Message             Message
+	ToolCall            ToolCall
+	ToolResult          ToolResult
+	Error               error
 }
 
 // Hook observes or rejects lifecycle events.
@@ -542,36 +645,39 @@ type Observation struct {
 	Duration        time.Duration
 	EstimatedTokens int
 	// TokenUsage reports sanitized real token counts when a model reports them.
-	TokenUsage     TokenUsage
-	Approved       bool
-	ApprovalReason string
-	ErrorCategory  ErrorCategory
-	Failed         bool
+	TokenUsage TokenUsage
+	// ProviderDiagnostics reports safe provider metadata for model failures.
+	ProviderDiagnostics ProviderDiagnostics
+	Approved            bool
+	ApprovalReason      string
+	ErrorCategory       ErrorCategory
+	Failed              bool
 }
 
 // ObservationFromEvent converts a lifecycle event into safe telemetry metadata.
 func ObservationFromEvent(event Event) Observation {
 	return Observation{
-		Type:            event.Type,
-		AgentID:         event.AgentID,
-		RunID:           event.RunID,
-		SubagentID:      event.SubagentID,
-		ToolName:        event.ToolName,
-		ToolRisk:        event.ToolRisk,
-		SkillName:       event.SkillName,
-		TraceID:         event.TraceID,
-		SpanID:          event.SpanID,
-		TraceState:      event.TraceState,
-		RequestID:       event.RequestID,
-		ParentRequestID: event.ParentRequestID,
-		Round:           event.Round,
-		Duration:        event.Duration,
-		EstimatedTokens: event.EstimatedTokens,
-		TokenUsage:      event.TokenUsage,
-		Approved:        event.Approved,
-		ApprovalReason:  event.ApprovalReason,
-		ErrorCategory:   event.ErrorCategory,
-		Failed:          event.Error != nil || event.ErrorCategory != "",
+		Type:                event.Type,
+		AgentID:             event.AgentID,
+		RunID:               event.RunID,
+		SubagentID:          event.SubagentID,
+		ToolName:            event.ToolName,
+		ToolRisk:            event.ToolRisk,
+		SkillName:           event.SkillName,
+		TraceID:             event.TraceID,
+		SpanID:              event.SpanID,
+		TraceState:          event.TraceState,
+		RequestID:           event.RequestID,
+		ParentRequestID:     event.ParentRequestID,
+		Round:               event.Round,
+		Duration:            event.Duration,
+		EstimatedTokens:     event.EstimatedTokens,
+		TokenUsage:          event.TokenUsage,
+		ProviderDiagnostics: event.ProviderDiagnostics,
+		Approved:            event.Approved,
+		ApprovalReason:      event.ApprovalReason,
+		ErrorCategory:       event.ErrorCategory,
+		Failed:              event.Error != nil || event.ErrorCategory != "",
 	}
 }
 

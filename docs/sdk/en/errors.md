@@ -33,8 +33,9 @@ _ = reply
 ## AgentError
 
 `AgentError` carries category, operation, agent ID, run ID, trace ID, span ID,
-trace state, request ID, parent request ID, tool name, subagent ID, round, and
-the wrapped cause. Use `errors.As` when audit context is needed.
+trace state, request ID, parent request ID, tool name, subagent ID, round,
+provider diagnostics when available, and the wrapped cause. Use `errors.As`
+when audit context is needed.
 
 ```go
 var agentErr *agent.AgentError
@@ -46,6 +47,30 @@ if errors.As(err, &agentErr) {
 	)
 }
 ```
+
+## Provider Diagnostics
+
+Built-in model adapters attach safe provider diagnostics to HTTP, transport,
+and decode failures. Diagnostics may include provider name, HTTP status,
+endpoint host, and provider request ID. They do not include full URLs with query
+strings, request or response bodies, prompts, tool arguments, API keys,
+authorization headers, or raw provider error text.
+
+```go
+var agentErr *agent.AgentError
+if errors.As(err, &agentErr) {
+	diag := agentErr.ProviderDiagnostics
+	log.Printf("provider=%s status=%d host=%s provider_request=%s",
+		diag.Provider,
+		diag.HTTPStatus,
+		diag.EndpointHost,
+		diag.RequestID,
+	)
+}
+```
+
+When handling errors returned directly from a model adapter, use
+`ProviderDiagnosticsFromError`.
 
 ## Error Categories
 

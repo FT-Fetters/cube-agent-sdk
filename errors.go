@@ -34,9 +34,13 @@ func agentError(category ErrorCategory, operation string, cause error) *AgentErr
 	if cause == nil {
 		return nil
 	}
-	return &AgentError{
+	wrapped := &AgentError{
 		Category:  category,
 		Operation: operation,
 		Cause:     cause,
 	}
+	if diagnostics, ok := ProviderDiagnosticsFromError(cause); ok {
+		wrapped.ProviderDiagnostics = diagnostics
+	}
+	return wrapped
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/cubence/cube-agent-sdk/internal/core"
+	providerdiagnostics "github.com/cubence/cube-agent-sdk/internal/providers/diagnostics"
 )
 
 const (
@@ -71,18 +72,19 @@ func (m *OpenAIResponsesModel) Generate(ctx context.Context, request ModelReques
 	if m == nil {
 		return ModelResponse{}, errors.New("agent: openai responses model is nil")
 	}
+	diagnostics := providerdiagnostics.New(providerOpenAIResponses, m.endpoint)
 	payload, err := newOpenAIResponsesRequest(m.model, m.maxTokens, m.store, request)
 	if err != nil {
 		return ModelResponse{}, err
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: encode openai responses request: %w", err)
+		return ModelResponse{}, core.NewProviderError("encode openai responses request", diagnostics, err)
 	}
 
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, m.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: create openai responses request: %w", err)
+		return ModelResponse{}, core.NewProviderError("create openai responses request", diagnostics, err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	if m.apiKey != "" {
@@ -95,18 +97,18 @@ func (m *OpenAIResponsesModel) Generate(ctx context.Context, request ModelReques
 	}
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: call openai responses: %w", err)
+		return ModelResponse{}, core.NewProviderError("call openai responses", diagnostics, err)
 	}
 	defer httpResponse.Body.Close()
 
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
-		summary := openAICompatibleErrorSummary(httpResponse.Body, m.apiKey)
-		return ModelResponse{}, fmt.Errorf("agent: openai responses returned status %d: %s", httpResponse.StatusCode, summary)
+		diagnostics := providerdiagnostics.FromResponse(providerOpenAIResponses, m.endpoint, httpResponse)
+		return ModelResponse{}, core.NewProviderError(fmt.Sprintf("openai responses returned status %d", httpResponse.StatusCode), diagnostics, nil)
 	}
 
 	var decoded openAIResponsesResponse
 	if err := json.NewDecoder(httpResponse.Body).Decode(&decoded); err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: decode openai responses response: %w", err)
+		return ModelResponse{}, core.NewProviderError("decode openai responses response", diagnostics, err)
 	}
 	return decoded.modelResponse()
 }

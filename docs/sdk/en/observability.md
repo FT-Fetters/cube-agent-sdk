@@ -65,9 +65,10 @@ change agent behavior.
 Events and observations carry audit fields such as event type, agent ID,
 run ID, trace ID, span ID, trace state, subagent ID, request ID, parent request
 ID, round, duration, estimated tokens, real token usage, tool name, tool risk,
-approval result, skill name, and error category. `ParentRequestID` links tool
-and approval events to the model request that caused them, and links follow-up
-model requests within the same run.
+approval result, skill name, error category, and safe provider diagnostics for
+model failures. `ParentRequestID` links tool and approval events to the model
+request that caused them, and links follow-up model requests within the same
+run.
 
 `EstimatedTokens` is the SDK's request-side estimate and stays populated even
 when the provider does not report usage. `TokenUsage` carries real input,
@@ -76,4 +77,5 @@ output, and total token counts from `ModelResponse.Usage` on non-streaming
 `TokenUsage` fields remain zero.
 
 Observations intentionally omit message content, tool arguments, tool results,
-raw errors, API keys, and MCP environment values.
+raw errors, API keys, full provider URLs with query strings, and MCP
+environment values.

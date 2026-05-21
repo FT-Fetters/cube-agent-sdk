@@ -6,18 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/cubence/cube-agent-sdk/internal/core"
+	providerdiagnostics "github.com/cubence/cube-agent-sdk/internal/providers/diagnostics"
 )
 
 const (
 	anthropicMessagesPath     = "/v1/messages"
 	defaultAnthropicVersion   = "2023-06-01"
 	defaultAnthropicMaxTokens = 4096
+	providerAnthropicMessages = "anthropic-messages"
 )
 
 const (
@@ -95,18 +96,19 @@ func (m *AnthropicMessagesModel) Generate(ctx context.Context, request ModelRequ
 	if m == nil {
 		return ModelResponse{}, errors.New("agent: anthropic messages model is nil")
 	}
+	diagnostics := providerdiagnostics.New(providerAnthropicMessages, m.endpoint)
 	payload, err := newAnthropicMessagesRequest(m.model, m.maxTokens, request)
 	if err != nil {
 		return ModelResponse{}, err
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: encode anthropic messages request: %w", err)
+		return ModelResponse{}, core.NewProviderError("encode anthropic messages request", diagnostics, err)
 	}
 
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, m.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: create anthropic messages request: %w", err)
+		return ModelResponse{}, core.NewProviderError("create anthropic messages request", diagnostics, err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("anthropic-version", m.anthropicVersion)
@@ -120,18 +122,18 @@ func (m *AnthropicMessagesModel) Generate(ctx context.Context, request ModelRequ
 	}
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: call anthropic messages: %w", err)
+		return ModelResponse{}, core.NewProviderError("call anthropic messages", diagnostics, err)
 	}
 	defer httpResponse.Body.Close()
 
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
-		summary := redactedErrorSummary(httpResponse.Body, m.apiKey)
-		return ModelResponse{}, fmt.Errorf("agent: anthropic messages returned status %d: %s", httpResponse.StatusCode, summary)
+		diagnostics := providerdiagnostics.FromResponse(providerAnthropicMessages, m.endpoint, httpResponse)
+		return ModelResponse{}, core.NewProviderError(fmt.Sprintf("anthropic messages returned status %d", httpResponse.StatusCode), diagnostics, nil)
 	}
 
 	var decoded anthropicMessagesResponse
 	if err := json.NewDecoder(httpResponse.Body).Decode(&decoded); err != nil {
-		return ModelResponse{}, fmt.Errorf("agent: decode anthropic messages response: %w", err)
+		return ModelResponse{}, core.NewProviderError("decode anthropic messages response", diagnostics, err)
 	}
 	return decoded.modelResponse()
 }
@@ -324,23 +326,4 @@ func anthropicMessagesEndpoint(rawBaseURL string) (string, error) {
 		parsed.Path = path + anthropicMessagesPath
 	}
 	return parsed.String(), nil
-}
-
-func redactedErrorSummary(body io.Reader, apiKey string) string {
-	limited, err := io.ReadAll(io.LimitReader(body, 4096))
-	if err != nil {
-		return "failed to read error response body"
-	}
-	summary := strings.TrimSpace(string(limited))
-	if summary == "" {
-		return "empty response body"
-	}
-	if apiKey != "" {
-		summary = strings.ReplaceAll(summary, "Bearer "+apiKey, "Bearer [redacted]")
-		summary = strings.ReplaceAll(summary, apiKey, "[redacted]")
-	}
-	if len(summary) > 512 {
-		summary = summary[:512] + "..."
-	}
-	return summary
 }

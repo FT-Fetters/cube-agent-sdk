@@ -35,6 +35,9 @@ const (
 type StreamEvent = core.StreamEvent
 type ModelRequest = core.ModelRequest
 type TokenUsage = core.TokenUsage
+type ProviderDiagnostics = core.ProviderDiagnostics
+type ProviderDiagnosticsError = core.ProviderDiagnosticsError
+type ProviderError = core.ProviderError
 type ModelResponse = core.ModelResponse
 type Config = core.Config
 
@@ -111,6 +114,11 @@ const (
 )
 
 type AgentError = core.AgentError
+
+var (
+	NewProviderError             = core.NewProviderError
+	ProviderDiagnosticsFromError = core.ProviderDiagnosticsFromError
+)
 
 type EventType = core.EventType
 

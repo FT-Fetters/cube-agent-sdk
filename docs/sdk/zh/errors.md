@@ -33,7 +33,7 @@ _ = reply
 ## AgentError
 
 `AgentError` 携带 category、operation、agent ID、run ID、trace ID、span ID、
-trace state、request ID、parent request ID、tool name、subagent ID、round 和被包装的 cause。需要审计上下文时使用
+trace state、request ID、parent request ID、tool name、subagent ID、round、可用时的 provider diagnostics 和被包装的 cause。需要审计上下文时使用
 `errors.As`。
 
 ```go
@@ -46,6 +46,28 @@ if errors.As(err, &agentErr) {
 	)
 }
 ```
+
+## Provider Diagnostics
+
+内置模型适配器会在 HTTP、transport 和 decode 失败时附加安全的 provider
+diagnostics。这些字段可能包含 provider name、HTTP status、endpoint host 和
+provider request ID；不会包含带 query string 的完整 URL、request/response body、
+prompt、tool arguments、API key、authorization header 或原始 provider 错误文本。
+
+```go
+var agentErr *agent.AgentError
+if errors.As(err, &agentErr) {
+	diag := agentErr.ProviderDiagnostics
+	log.Printf("provider=%s status=%d host=%s provider_request=%s",
+		diag.Provider,
+		diag.HTTPStatus,
+		diag.EndpointHost,
+		diag.RequestID,
+	)
+}
+```
+
+直接处理模型适配器返回的错误时，可以使用 `ProviderDiagnosticsFromError`。
 
 ## 错误类别
 
