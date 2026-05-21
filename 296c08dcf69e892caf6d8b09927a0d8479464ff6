@@ -1,0 +1,52 @@
+slog_observer_test.go
+  c01c43b2f5a1d0dc 53,86-89
+README.md
+  c01c43b2f5a1d0dc 479-486,555-557,571-573,584-585,588-591
+OBSERVABILITY_OPTIMIZATION_TODO.md
+  c01c43b2f5a1d0dc 73
+docs/sdk/zh/observability.md
+  c01c43b2f5a1d0dc 53-60,139-141,152-156,177-178,182-189
+docs/sdk/en/api-reference.md
+  c01c43b2f5a1d0dc 162,164,178-180
+sampling_observer.go
+  c01c43b2f5a1d0dc 179,192-195
+metrics_observer_test.go
+  c01c43b2f5a1d0dc 105-156,278-287
+observer_test.go
+  c01c43b2f5a1d0dc 9,346-515,736-743,843-883,926-947
+aliases.go
+  c01c43b2f5a1d0dc 164
+internal/core/types.go
+  c01c43b2f5a1d0dc 758-759,810-824,864-866,904
+docs/sdk/en/observability.md
+  c01c43b2f5a1d0dc 55-62,145-149,161-166,192-193,197-200,202-206
+slog_observer.go
+  c01c43b2f5a1d0dc 156-158,163-176,194-195
+tools.go
+  c01c43b2f5a1d0dc 19,35,41,43,50,52,74,90,99,118,127,137,159,161,193,206,210,217
+docs/sdk/zh/api-reference.md
+  c01c43b2f5a1d0dc 162,164,177-178
+metrics_observer.go
+  c01c43b2f5a1d0dc 17-18,47-48,59,70,86,89-105,132-135,137-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "296c08dcf69e892caf6d8b09927a0d8479464ff6",
+  "prompts": {
+    "c01c43b2f5a1d0dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4b2c-9a4a-74a1-8899-9a458b908769",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 513,
+      "total_deletions": 35,
+      "accepted_lines": 513,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/60a15baeff476d093cfb827d1ef3211b5819f8e6d1c3177f93ae556697f295cd"
+    }
+  }
+}
