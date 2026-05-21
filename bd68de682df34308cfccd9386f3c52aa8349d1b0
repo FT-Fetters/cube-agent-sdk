@@ -1,0 +1,105 @@
+docs/sdk/en/models.md
+  8c90619e5de05388 1-117
+docs/sdk/zh/README.md
+  8c90619e5de05388 1-48
+docs/sdk/en/production.md
+  8c90619e5de05388 1-34
+docs/sdk/en/errors.md
+  8c90619e5de05388 1-64
+docs/sdk/en/sessions.md
+  8c90619e5de05388 1-57
+docs/sdk/zh/skills.md
+  8c90619e5de05388 1-44
+docs/sdk/en/subagents.md
+  8c90619e5de05388 1-51
+docs/sdk/en/streaming.md
+  8c90619e5de05388 1-39
+docs/sdk/en/README.md
+  8c90619e5de05388 1-50
+docs/sdk/zh/examples.md
+  8c90619e5de05388 1-50
+README.md
+  8c90619e5de05388 74-80
+docs/sdk/en/tools.md
+  8c90619e5de05388 1-76
+docs/sdk/zh/subagents.md
+  8c90619e5de05388 1-49
+docs/sdk/zh/streaming.md
+  8c90619e5de05388 1-39
+docs/sdk/zh/observability.md
+  8c90619e5de05388 1-47
+docs/sdk/en/api-reference.md
+  8c90619e5de05388 1-155
+docs/sdk/en/agent-runtime.md
+  8c90619e5de05388 1-62
+docs/sdk/en/getting-started.md
+  8c90619e5de05388 1-69
+docs/sdk/zh/models.md
+  8c90619e5de05388 1-118
+docs/sdk/zh/production.md
+  8c90619e5de05388 1-26
+docs/sdk/zh/compaction.md
+  8c90619e5de05388 1-47
+docs/sdk/zh/mcp.md
+  8c90619e5de05388 1-61
+docs/sdk/en/examples.md
+  8c90619e5de05388 1-50
+docs/sdk/zh/agent-runtime.md
+  8c90619e5de05388 1-57
+docs/sdk/en/approvals.md
+  8c90619e5de05388 1-48
+docs/sdk/en/compaction.md
+  8c90619e5de05388 1-52
+docs/sdk/zh/errors.md
+  8c90619e5de05388 1-62
+docs/sdk/zh/sessions.md
+  8c90619e5de05388 1-54
+docs/sdk/zh/api-reference.md
+  8c90619e5de05388 1-155
+docs/sdk/en/observability.md
+  8c90619e5de05388 1-49
+docs/sdk/en/mcp.md
+  8c90619e5de05388 1-63
+docs/sdk/zh/tools.md
+  8c90619e5de05388 1-73
+docs/sdk/zh/approvals.md
+  8c90619e5de05388 1-46
+docs/sdk/en/skills.md
+  8c90619e5de05388 1-46
+docs/sdk/zh/getting-started.md
+  8c90619e5de05388 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "bd68de682df34308cfccd9386f3c52aa8349d1b0",
+  "prompts": {
+    "7a4f7aa709516e8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3dcf-a288-75a1-b515-1bed3b367a05",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 327,
+      "overriden_lines": 0
+    },
+    "8c90619e5de05388": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f2ab5e52-6fc3-464e-93f8-07346bf4c499",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 2134,
+      "total_deletions": 0,
+      "accepted_lines": 2134,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/1ebbf0d30f6d60f88d25f1843254de3c3b1d39991503428e178ce590d950dd6b"
+    }
+  }
+}
