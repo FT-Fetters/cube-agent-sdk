@@ -1,0 +1,54 @@
+docs/sdk/zh/models.md
+  c01c43b2f5a1d0dc 62-63,84-86,105-107
+internal/providers/openai/responses.go
+  c01c43b2f5a1d0dc 155-157,174-181,379,383-396
+internal/providers/openai/openai.go
+  c01c43b2f5a1d0dc 155,168-173,288,292-297
+openai_compatible_test.go
+  c01c43b2f5a1d0dc 208-241
+openai_responses_test.go
+  c01c43b2f5a1d0dc 225-260
+anthropic_messages_test.go
+  c01c43b2f5a1d0dc 198-234
+internal/providers/anthropic/anthropic.go
+  c01c43b2f5a1d0dc 170,173-176,288-299
+  7a4f7aa709516e8f 171-172,300
+docs/sdk/en/models.md
+  c01c43b2f5a1d0dc 64-65,86-87,106-109
+OBSERVABILITY_OPTIMIZATION_TODO.md
+  c01c43b2f5a1d0dc 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "5a54921f0fb9b9b5c62c4a1bb5da50e06de27051",
+  "prompts": {
+    "7a4f7aa709516e8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3dcf-a288-75a1-b515-1bed3b367a05",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 326,
+      "overriden_lines": 0
+    },
+    "c01c43b2f5a1d0dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4b2c-9a4a-74a1-8899-9a458b908769",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 188,
+      "total_deletions": 8,
+      "accepted_lines": 188,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/f0dcf96f235cb772648313880fee5485e78c9e89d1de83024ce89d5fe13e867b"
+    }
+  }
+}
