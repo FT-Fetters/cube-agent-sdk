@@ -152,6 +152,12 @@ received. If a stream fails before the first delta, time to first token and the
 stream counters remain zero while `Duration` still records the failed stream
 duration.
 
+`RunStream` does not emit stream lifecycle observations by default. Pass
+`WithStreamObservations()` on a single `RunStream` call to add observer-only
+`EventStreamStart`, `EventStreamFirstDelta`, `EventStreamDone`, and
+`EventStreamError` observations. Only the first delta is observed; subsequent
+deltas are not emitted as observations.
+
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, full provider URLs with query strings, and MCP
 environment values.

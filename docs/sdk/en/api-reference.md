@@ -16,6 +16,7 @@ method-level details while keeping this page as a navigation aid.
 - `Run`
 - `RunStream`
 - `WithRunID`
+- `WithStreamObservations`
 
 ## Messages and Models
 

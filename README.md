@@ -552,7 +552,11 @@ trace for one `Run` or `RunStream`; otherwise the SDK generates a run ID.
 For streaming model calls, final `EventAfterModel` records use `Duration` for
 total stream duration and `StreamTelemetry` for time to first token, delta
 count, streamed delta bytes, and throughput. Streams that fail before the first
-delta keep first-token latency and stream counters at zero.
+delta keep first-token latency and stream counters at zero. Pass
+`agent.WithStreamObservations()` to a single `RunStream` call to add
+observer-only `EventStreamStart`, `EventStreamFirstDelta`, `EventStreamDone`,
+and `EventStreamError` observations without emitting per-delta observations
+after the first delta.
 `SlogObserver` always logs `event` and `failed`, and omits other zero-value
 attributes. Duration is emitted as `duration_ms`; token usage, stream telemetry,
 tool metadata, approval metadata, and provider diagnostics are emitted as

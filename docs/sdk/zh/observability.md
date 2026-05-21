@@ -141,6 +141,12 @@ usage，`TokenUsage` 字段保持零值。
 streamed delta 字节数和 bytes-per-second 吞吐量。如果 stream 在第一个 delta 之前失败，
 time to first token 和 stream 计数字段会保持零值，而 `Duration` 仍会记录失败 stream 的持续时间。
 
+`RunStream` 默认不会发出 stream lifecycle observations。可以在单次 `RunStream`
+调用上使用 `WithStreamObservations()`，额外发出 observer-only 的
+`EventStreamStart`、`EventStreamFirstDelta`、`EventStreamDone` 和
+`EventStreamError` observations。只有第一个 delta 会被观察；后续 delta 不会逐条发出
+observations。
+
 Observations 有意省略消息内容、工具参数、工具结果、原始错误、API keys、带
 query string 的完整 provider URL 和 MCP 环境变量。
 

@@ -139,16 +139,20 @@ var (
 type EventType = core.EventType
 
 const (
-	EventBeforeModel     = core.EventBeforeModel
-	EventAfterModel      = core.EventAfterModel
-	EventBeforeApproval  = core.EventBeforeApproval
-	EventAfterApproval   = core.EventAfterApproval
-	EventBeforeTool      = core.EventBeforeTool
-	EventAfterTool       = core.EventAfterTool
-	EventBeforeCompact   = core.EventBeforeCompact
-	EventAfterCompact    = core.EventAfterCompact
-	EventSkillActivated  = core.EventSkillActivated
-	EventSubagentMessage = core.EventSubagentMessage
+	EventBeforeModel      = core.EventBeforeModel
+	EventAfterModel       = core.EventAfterModel
+	EventBeforeApproval   = core.EventBeforeApproval
+	EventAfterApproval    = core.EventAfterApproval
+	EventBeforeTool       = core.EventBeforeTool
+	EventAfterTool        = core.EventAfterTool
+	EventBeforeCompact    = core.EventBeforeCompact
+	EventAfterCompact     = core.EventAfterCompact
+	EventSkillActivated   = core.EventSkillActivated
+	EventSubagentMessage  = core.EventSubagentMessage
+	EventStreamStart      = core.EventStreamStart
+	EventStreamFirstDelta = core.EventStreamFirstDelta
+	EventStreamDone       = core.EventStreamDone
+	EventStreamError      = core.EventStreamError
 )
 
 type Event = core.Event

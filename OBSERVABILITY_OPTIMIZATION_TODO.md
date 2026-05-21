@@ -58,7 +58,7 @@
 - [x] **14. Add streaming first-token and throughput telemetry.**
   Track time-to-first-token, stream duration, and optional throughput metadata for streaming runs.
 
-- [ ] **15. Add optional streaming lifecycle observations.**
+- [x] **15. Add optional streaming lifecycle observations.**
   Emit optional stream start, first delta, done, and error observations without emitting every delta by default.
 
 - [ ] **16. Align streaming errors with non-streaming observability.**

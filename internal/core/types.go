@@ -717,16 +717,20 @@ func (e *AgentError) Unwrap() error {
 type EventType string
 
 const (
-	EventBeforeModel     EventType = "before_model"
-	EventAfterModel      EventType = "after_model"
-	EventBeforeApproval  EventType = "before_approval"
-	EventAfterApproval   EventType = "after_approval"
-	EventBeforeTool      EventType = "before_tool"
-	EventAfterTool       EventType = "after_tool"
-	EventBeforeCompact   EventType = "before_compact"
-	EventAfterCompact    EventType = "after_compact"
-	EventSkillActivated  EventType = "skill_activated"
-	EventSubagentMessage EventType = "subagent_message"
+	EventBeforeModel      EventType = "before_model"
+	EventAfterModel       EventType = "after_model"
+	EventBeforeApproval   EventType = "before_approval"
+	EventAfterApproval    EventType = "after_approval"
+	EventBeforeTool       EventType = "before_tool"
+	EventAfterTool        EventType = "after_tool"
+	EventBeforeCompact    EventType = "before_compact"
+	EventAfterCompact     EventType = "after_compact"
+	EventSkillActivated   EventType = "skill_activated"
+	EventSubagentMessage  EventType = "subagent_message"
+	EventStreamStart      EventType = "stream_start"
+	EventStreamFirstDelta EventType = "stream_first_delta"
+	EventStreamDone       EventType = "stream_done"
+	EventStreamError      EventType = "stream_error"
 )
 
 // Event carries lifecycle data to hooks.

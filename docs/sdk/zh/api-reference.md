@@ -16,6 +16,7 @@
 - `Run`
 - `RunStream`
 - `WithRunID`
+- `WithStreamObservations`
 
 ## Messages 和 Models
 

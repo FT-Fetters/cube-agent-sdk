@@ -52,8 +52,9 @@ type Option func(*Agent) error
 type RunOption func(*runConfig)
 
 type runConfig struct {
-	skillNames []string
-	runID      string
+	skillNames             []string
+	runID                  string
+	observeStreamLifecycle bool
 }
 
 type runIDContextKey struct{}
@@ -228,6 +229,15 @@ func WithRunSkills(names ...string) RunOption {
 func WithRunID(id string) RunOption {
 	return func(config *runConfig) {
 		config.runID = strings.TrimSpace(id)
+	}
+}
+
+// WithStreamObservations enables sanitized stream lifecycle observations for a
+// single RunStream call. It emits stream start, first delta, done, and error
+// observations without logging delta text or message content.
+func WithStreamObservations() RunOption {
+	return func(config *runConfig) {
+		config.observeStreamLifecycle = true
 	}
 }
 
@@ -470,22 +480,45 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		return nil, err
 	}
 	started := time.Now()
+	a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
+		Type:            EventStreamStart,
+		RequestID:       requestID,
+		Round:           1,
+		EstimatedTokens: estimatedTokens,
+	})
 	modelEvents, err := streamModel.Stream(ctx, request)
 	if err != nil {
 		wrapped := agentError(ErrorCategoryModel, "model.stream", err)
 		wrapped.AgentID = request.AgentID
 		wrapped.RequestID = requestID
 		wrapped.Round = 1
-		if emitErr := a.emit(ctx, Event{
+		afterEvent := Event{
 			Type:            EventAfterModel,
 			RequestID:       requestID,
 			Round:           1,
 			Duration:        eventDurationSince(started),
 			EstimatedTokens: estimatedTokens,
 			Error:           wrapped,
-		}); emitErr != nil {
+		}
+		if emitErr := a.emit(ctx, afterEvent); emitErr != nil {
+			a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
+				Type:            EventStreamError,
+				RequestID:       requestID,
+				Round:           1,
+				Duration:        afterEvent.Duration,
+				EstimatedTokens: estimatedTokens,
+				Error:           emitErr,
+			})
 			return nil, emitErr
 		}
+		a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
+			Type:            EventStreamError,
+			RequestID:       requestID,
+			Round:           1,
+			Duration:        afterEvent.Duration,
+			EstimatedTokens: estimatedTokens,
+			Error:           wrapped,
+		})
 		return nil, wrapped
 	}
 	if modelEvents == nil {
@@ -494,25 +527,42 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		wrapped.AgentID = request.AgentID
 		wrapped.RequestID = requestID
 		wrapped.Round = 1
-		if emitErr := a.emit(ctx, Event{
+		afterEvent := Event{
 			Type:            EventAfterModel,
 			RequestID:       requestID,
 			Round:           1,
 			Duration:        eventDurationSince(started),
 			EstimatedTokens: estimatedTokens,
 			Error:           wrapped,
-		}); emitErr != nil {
+		}
+		if emitErr := a.emit(ctx, afterEvent); emitErr != nil {
+			a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
+				Type:            EventStreamError,
+				RequestID:       requestID,
+				Round:           1,
+				Duration:        afterEvent.Duration,
+				EstimatedTokens: estimatedTokens,
+				Error:           emitErr,
+			})
 			return nil, emitErr
 		}
+		a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
+			Type:            EventStreamError,
+			RequestID:       requestID,
+			Round:           1,
+			Duration:        afterEvent.Duration,
+			EstimatedTokens: estimatedTokens,
+			Error:           wrapped,
+		})
 		return nil, wrapped
 	}
 
 	out := make(chan StreamEvent)
-	go a.forwardStreamEvents(ctx, modelEvents, out, requestID, 1, estimatedTokens, started)
+	go a.forwardStreamEvents(ctx, modelEvents, out, requestID, 1, estimatedTokens, started, config.observeStreamLifecycle)
 	return out, nil
 }
 
-func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan StreamEvent, out chan<- StreamEvent, requestID string, round int, estimatedTokens int, started time.Time) {
+func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan StreamEvent, out chan<- StreamEvent, requestID string, round int, estimatedTokens int, started time.Time, observeStreamLifecycle bool) {
 	defer close(out)
 
 	a.mu.Lock()
@@ -528,17 +578,28 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 		switch event.Type {
 		case StreamEventDelta:
 			if len(event.Message.ToolCalls) > 0 {
-				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry)
+				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
 				return
 			}
 			telemetry.recordDelta(event.Delta)
+			if telemetry.deltaCount == 1 {
+				duration := eventDurationSince(started)
+				a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+					Type:            EventStreamFirstDelta,
+					RequestID:       requestID,
+					Round:           round,
+					Duration:        duration,
+					EstimatedTokens: estimatedTokens,
+					StreamTelemetry: telemetry.telemetry(duration),
+				})
+			}
 			content.WriteString(event.Delta)
 			if !sendStreamEvent(ctx, out, event) {
 				return
 			}
 		case StreamEventDone:
 			if len(event.Message.ToolCalls) > 0 {
-				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry)
+				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
 				return
 			}
 			message := event.Message
@@ -560,9 +621,17 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 				StreamTelemetry: telemetry.telemetry(duration),
 				Message:         message,
 			}); err != nil {
-				a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry)
+				a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
 				return
 			}
+			a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+				Type:            EventStreamDone,
+				RequestID:       requestID,
+				Round:           round,
+				Duration:        duration,
+				EstimatedTokens: estimatedTokens,
+				StreamTelemetry: telemetry.telemetry(duration),
+			})
 			// Commit only after done so interrupted delta streams do not persist partial assistant text.
 			a.appendMessage(message)
 			done = true
@@ -590,21 +659,30 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			}); emitErr != nil {
 				event.Error = emitErr
 			}
+			a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+				Type:            EventStreamError,
+				RequestID:       requestID,
+				Round:           round,
+				Duration:        duration,
+				EstimatedTokens: estimatedTokens,
+				StreamTelemetry: telemetry.telemetry(duration),
+				Error:           event.Error,
+			})
 			_ = sendStreamEvent(ctx, out, event)
 			return
 		default:
 			err := fmt.Errorf("agent: unknown stream event type %q", event.Type)
-			a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry)
+			a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
 			return
 		}
 	}
 
 	if !done {
-		a.sendStreamError(ctx, out, agentID, errors.New("agent: stream ended without done event"), requestID, round, estimatedTokens, started, telemetry)
+		a.sendStreamError(ctx, out, agentID, errors.New("agent: stream ended without done event"), requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
 	}
 }
 
-func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, requestID string, round int, estimatedTokens int, started time.Time, telemetry streamTelemetryTracker) {
+func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, requestID string, round int, estimatedTokens int, started time.Time, telemetry streamTelemetryTracker, observeStreamLifecycle bool) {
 	err = streamAgentError(err)
 	runID := runIDFromContext(ctx)
 	var agentErr *AgentError
@@ -624,6 +702,16 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		}
 	}
 	if classifyError(err) == ErrorCategoryHook {
+		duration := eventDurationSince(started)
+		a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+			Type:            EventStreamError,
+			RequestID:       requestID,
+			Round:           round,
+			Duration:        duration,
+			EstimatedTokens: estimatedTokens,
+			StreamTelemetry: telemetry.telemetry(duration),
+			Error:           err,
+		})
 		_ = sendStreamEvent(ctx, out, StreamEvent{
 			Type:    StreamEventError,
 			AgentID: agentID,
@@ -643,6 +731,15 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 	}); emitErr != nil {
 		err = emitErr
 	}
+	a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+		Type:            EventStreamError,
+		RequestID:       requestID,
+		Round:           round,
+		Duration:        duration,
+		EstimatedTokens: estimatedTokens,
+		StreamTelemetry: telemetry.telemetry(duration),
+		Error:           err,
+	})
 	_ = sendStreamEvent(ctx, out, StreamEvent{
 		Type:    StreamEventError,
 		AgentID: agentID,
@@ -978,26 +1075,7 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 	observer := a.observer
 	hooks := append([]Hook(nil), a.hooks...)
 	a.mu.Unlock()
-	if event.RunID == "" {
-		event.RunID = runIDFromContext(ctx)
-	}
-	trace := applyTraceContextToEvent(ctx, &event)
-	if event.Error != nil && event.ErrorCategory == "" {
-		event.ErrorCategory = classifyError(event.Error)
-	}
-	if event.Error != nil && event.ErrorCategory == ErrorCategoryModel && event.ModelErrorSubcategory == "" {
-		if subcategory, ok := ModelErrorSubcategoryFromError(event.Error); ok {
-			event.ModelErrorSubcategory = subcategory
-		}
-	}
-	if event.Error != nil && event.ProviderDiagnostics.IsZero() {
-		if diagnostics, ok := ProviderDiagnosticsFromError(event.Error); ok {
-			event.ProviderDiagnostics = diagnostics
-		}
-	}
-	setAgentErrorRunID(event.Error, event.RunID)
-	setAgentErrorTraceContext(event.Error, trace)
-	setAgentErrorParentRequestID(event.Error, event.ParentRequestID)
+	trace := prepareEventForTelemetry(ctx, &event)
 
 	notifyObserver(ctx, observer, event)
 
@@ -1020,6 +1098,44 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 		}
 	}
 	return nil
+}
+
+func (a *Agent) observeStreamLifecycle(ctx context.Context, enabled bool, event Event) {
+	if !enabled {
+		return
+	}
+	// Stream lifecycle telemetry is observer-only so opt-in observations cannot
+	// add hook rejection paths to streaming delivery.
+	a.mu.Lock()
+	event.AgentID = a.id
+	observer := a.observer
+	a.mu.Unlock()
+	prepareEventForTelemetry(ctx, &event)
+	notifyObserver(ctx, observer, event)
+}
+
+func prepareEventForTelemetry(ctx context.Context, event *Event) TraceContext {
+	if event.RunID == "" {
+		event.RunID = runIDFromContext(ctx)
+	}
+	trace := applyTraceContextToEvent(ctx, event)
+	if event.Error != nil && event.ErrorCategory == "" {
+		event.ErrorCategory = classifyError(event.Error)
+	}
+	if event.Error != nil && event.ErrorCategory == ErrorCategoryModel && event.ModelErrorSubcategory == "" {
+		if subcategory, ok := ModelErrorSubcategoryFromError(event.Error); ok {
+			event.ModelErrorSubcategory = subcategory
+		}
+	}
+	if event.Error != nil && event.ProviderDiagnostics.IsZero() {
+		if diagnostics, ok := ProviderDiagnosticsFromError(event.Error); ok {
+			event.ProviderDiagnostics = diagnostics
+		}
+	}
+	setAgentErrorRunID(event.Error, event.RunID)
+	setAgentErrorTraceContext(event.Error, trace)
+	setAgentErrorParentRequestID(event.Error, event.ParentRequestID)
+	return trace
 }
 
 func eventDurationSince(started time.Time) time.Duration {

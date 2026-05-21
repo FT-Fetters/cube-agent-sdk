@@ -1440,6 +1440,129 @@ func TestAgentRunStreamObservabilityLeavesFirstTokenZeroOnErrorBeforeDeltas(t *t
 	assertZeroStreamTelemetry(t, afterObservation.StreamTelemetry)
 }
 
+func TestAgentRunStreamLifecycleObservationsAreOptIn(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "hel"},
+		{Type: StreamEventDelta, Delta: "lo"},
+		{Type: StreamEventDone},
+	}}
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-agent"}, model, WithObserver(recorder))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 3 {
+		t.Fatalf("stream events = %#v, want delta, delta, done", got)
+	}
+
+	observations := recorder.Observations()
+	if got := streamLifecycleObservationTypes(observations); len(got) != 0 {
+		t.Fatalf("stream lifecycle observations = %#v, want none by default", got)
+	}
+	_ = firstObservationOfType(t, observations, EventBeforeModel)
+	_ = firstObservationOfType(t, observations, EventAfterModel)
+}
+
+func TestAgentRunStreamWithStreamObservationsEmitsSanitizedLifecycle(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "classified-one"},
+		{Type: StreamEventDelta, Delta: "classified-two"},
+		{Type: StreamEventDone},
+	}}
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-agent"}, model, WithObserver(recorder))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start", WithRunID("stream-run"), WithStreamObservations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 3 {
+		t.Fatalf("stream events = %#v, want delta, delta, done", got)
+	}
+	if got[0].Delta != "classified-one" || got[1].Delta != "classified-two" || got[2].Type != StreamEventDone {
+		t.Fatalf("stream events = %#v, want original stream channel behavior", got)
+	}
+
+	observations := recorder.Observations()
+	wantTypes := []EventType{EventStreamStart, EventStreamFirstDelta, EventStreamDone}
+	if got := streamLifecycleObservationTypes(observations); !reflect.DeepEqual(got, wantTypes) {
+		t.Fatalf("stream lifecycle observations = %#v, want %#v", got, wantTypes)
+	}
+
+	startObservation := firstObservationOfType(t, observations, EventStreamStart)
+	firstDeltaObservation := firstObservationOfType(t, observations, EventStreamFirstDelta)
+	doneObservation := firstObservationOfType(t, observations, EventStreamDone)
+	for _, observation := range []Observation{startObservation, firstDeltaObservation, doneObservation} {
+		if observation.AgentID != "stream-agent" || observation.RunID != "stream-run" || observation.RequestID == "" || observation.Round != 1 {
+			t.Fatalf("stream lifecycle observation context = %#v, want agent/run/request/round", observation)
+		}
+		if observation.Failed {
+			t.Fatalf("stream lifecycle observation = %#v, want successful observation", observation)
+		}
+		assertObservationDoesNotContain(t, observation, "classified")
+	}
+	if got := countObservationsOfType(observations, EventStreamFirstDelta); got != 1 {
+		t.Fatalf("stream first delta observations = %d, want one observation for two deltas", got)
+	}
+	assertZeroStreamTelemetry(t, startObservation.StreamTelemetry)
+	assertStreamTelemetry(t, firstDeltaObservation.StreamTelemetry, 1, len("classified-one"), true)
+	assertStreamTelemetry(t, doneObservation.StreamTelemetry, 2, len("classified-oneclassified-two"), true)
+	if firstDeltaObservation.Duration <= 0 || doneObservation.Duration <= 0 {
+		t.Fatalf("stream lifecycle durations = %s/%s, want positive first delta and done durations", firstDeltaObservation.Duration, doneObservation.Duration)
+	}
+}
+
+func TestAgentRunStreamWithStreamObservationsEmitsSanitizedErrorLifecycle(t *testing.T) {
+	ctx := context.Background()
+	streamErr := errors.New("classified stream interrupted")
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "classified-partial"},
+		{Type: StreamEventError, Error: streamErr},
+	}}
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-agent"}, model, WithObserver(recorder))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start", WithStreamObservations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 2 || got[0].Type != StreamEventDelta || got[1].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want delta then error", got)
+	}
+	if !errors.Is(got[1].Error, streamErr) {
+		t.Fatalf("stream error = %v, want original stream error in channel", got[1].Error)
+	}
+
+	observations := recorder.Observations()
+	wantTypes := []EventType{EventStreamStart, EventStreamFirstDelta, EventStreamError}
+	if got := streamLifecycleObservationTypes(observations); !reflect.DeepEqual(got, wantTypes) {
+		t.Fatalf("stream lifecycle observations = %#v, want %#v", got, wantTypes)
+	}
+
+	errorObservation := firstObservationOfType(t, observations, EventStreamError)
+	if !errorObservation.Failed || errorObservation.ErrorCategory != ErrorCategoryModel {
+		t.Fatalf("stream error observation = %#v, want failed model category", errorObservation)
+	}
+	assertStreamTelemetry(t, errorObservation.StreamTelemetry, 1, len("classified-partial"), true)
+	assertObservationDoesNotContain(t, errorObservation, "classified")
+}
+
 func TestAgentRunStreamCarriesRunIDInObservationsAndErrors(t *testing.T) {
 	ctx := context.Background()
 	streamErr := errors.New("stream interrupted")
@@ -2387,6 +2510,27 @@ func assertStreamTelemetry(t *testing.T, telemetry StreamTelemetry, deltaCount i
 func assertZeroStreamTelemetry(t *testing.T, telemetry StreamTelemetry) {
 	t.Helper()
 	assertStreamTelemetry(t, telemetry, 0, 0, false)
+}
+
+func streamLifecycleObservationTypes(observations []Observation) []EventType {
+	var eventTypes []EventType
+	for _, observation := range observations {
+		switch observation.Type {
+		case EventStreamStart, EventStreamFirstDelta, EventStreamDone, EventStreamError:
+			eventTypes = append(eventTypes, observation.Type)
+		}
+	}
+	return eventTypes
+}
+
+func countObservationsOfType(observations []Observation, eventType EventType) int {
+	var count int
+	for _, observation := range observations {
+		if observation.Type == eventType {
+			count++
+		}
+	}
+	return count
 }
 
 func assertEventTraceContext(t *testing.T, event Event, trace TraceContext) {

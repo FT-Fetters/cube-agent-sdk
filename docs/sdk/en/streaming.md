@@ -39,6 +39,10 @@ include sanitized `StreamTelemetry` with time to first token, delta count,
 streamed delta byte count, and throughput. Stream telemetry never contains the
 streamed text.
 
+Use `WithStreamObservations()` on a `RunStream` call when you need observer-only
+stream lifecycle telemetry for start, first delta, done, and error. The option
+does not emit per-delta observations beyond the first delta.
+
 ## Current Limitations
 
 Streamed tool calls are not executed yet. If a streaming model emits tool calls,
