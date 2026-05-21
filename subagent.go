@@ -48,6 +48,7 @@ func (a *Agent) SpawnSubagent(ctx context.Context, options SubagentOptions) (*Ag
 		wrapped := agentError(ErrorCategorySubagent, "subagent.spawn", fmt.Errorf("agent: subagent %q already exists", options.ID))
 		wrapped.AgentID = parentID
 		wrapped.RunID = runIDFromContext(ctx)
+		setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
 		wrapped.SubagentID = options.ID
 		wrapped.RequestID = a.nextRequestID()
 		return nil, wrapped
@@ -183,6 +184,7 @@ func (a *Agent) SendToParent(ctx context.Context, content string) error {
 		wrapped := agentError(ErrorCategorySubagent, "subagent.parent", errors.New("agent: agent has no parent"))
 		wrapped.AgentID = from
 		wrapped.RunID = runIDFromContext(ctx)
+		setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
 		return wrapped
 	}
 	message := SubagentMessage{

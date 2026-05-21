@@ -26,6 +26,21 @@ for that call. Pass `agent.WithRunID("trace-123")` to use an application trace
 ID; otherwise the SDK generates a non-empty ID from the agent ID and a local
 sequence.
 
+Keep run IDs and external trace IDs distinct when you need both. Trace metadata
+can be attached to the context:
+
+```go
+ctx = agent.WithTraceContext(ctx, agent.TraceContext{
+	TraceID:    "4bf92f3577b34da6a3ce929d0e0e4736",
+	SpanID:     "00f067aa0ba902b7",
+	TraceState: "vendor=state",
+})
+```
+
+The SDK propagates `TraceID`, `SpanID`, and `TraceState` to events,
+observations, and `AgentError` values. If `WithRunID` is not supplied, the SDK
+still generates a run ID instead of replacing it with `TraceID`.
+
 ## Observers
 
 ```go
@@ -48,10 +63,11 @@ change agent behavior.
 ## Sanitized Metadata
 
 Events and observations carry audit fields such as event type, agent ID,
-run ID, subagent ID, request ID, parent request ID, round, duration, estimated
-tokens, tool name, tool risk, approval result, skill name, and error category.
-`ParentRequestID` links tool and approval events to the model request that
-caused them, and links follow-up model requests within the same run.
+run ID, trace ID, span ID, trace state, subagent ID, request ID, parent request
+ID, round, duration, estimated tokens, tool name, tool risk, approval result,
+skill name, and error category. `ParentRequestID` links tool and approval
+events to the model request that caused them, and links follow-up model requests
+within the same run.
 
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.

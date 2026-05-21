@@ -138,6 +138,9 @@ method-level details while keeping this page as a navigation aid.
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
+- `TraceContext`
+- `WithTraceContext`
+- `TraceContextFromContext`
 
 ## Errors
 

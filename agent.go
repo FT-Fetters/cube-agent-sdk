@@ -384,6 +384,7 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 			wrapped := agentError(ErrorCategoryTool, "tool.rounds", ErrMaxToolRoundsExceeded)
 			wrapped.AgentID = request.AgentID
 			wrapped.RunID = runIDFromContext(ctx)
+			setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
 			wrapped.RequestID = requestID
 			wrapped.ParentRequestID = parentRequestID
 			wrapped.Round = roundNumber
@@ -433,6 +434,7 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		wrapped := agentError(ErrorCategoryStreaming, "stream.unsupported", cause)
 		wrapped.AgentID = a.agentID()
 		wrapped.RunID = runIDFromContext(ctx)
+		setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
 		wrapped.RequestID = a.nextRequestID()
 		wrapped.Round = 1
 		return nil, wrapped
@@ -606,6 +608,7 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		if agentErr.RunID == "" {
 			agentErr.RunID = runID
 		}
+		setAgentErrorTraceContext(agentErr, traceContextFromContext(ctx))
 		if agentErr.RequestID == "" {
 			agentErr.RequestID = requestID
 		}
@@ -878,6 +881,51 @@ func setAgentErrorParentRequestID(err error, parentRequestID string) {
 	}
 }
 
+func setAgentErrorTraceContext(err error, trace TraceContext) {
+	if err == nil || trace == (TraceContext{}) {
+		return
+	}
+	var agentErr *AgentError
+	if !errors.As(err, &agentErr) {
+		return
+	}
+	if agentErr.TraceID == "" {
+		agentErr.TraceID = trace.TraceID
+	}
+	if agentErr.SpanID == "" {
+		agentErr.SpanID = trace.SpanID
+	}
+	if agentErr.TraceState == "" {
+		agentErr.TraceState = trace.TraceState
+	}
+}
+
+func traceContextFromContext(ctx context.Context) TraceContext {
+	trace, _ := TraceContextFromContext(ctx)
+	return trace
+}
+
+func applyTraceContextToEvent(ctx context.Context, event *Event) TraceContext {
+	if event == nil {
+		return TraceContext{}
+	}
+	trace := traceContextFromContext(ctx)
+	if event.TraceID == "" {
+		event.TraceID = trace.TraceID
+	}
+	if event.SpanID == "" {
+		event.SpanID = trace.SpanID
+	}
+	if event.TraceState == "" {
+		event.TraceState = trace.TraceState
+	}
+	return TraceContext{
+		TraceID:    event.TraceID,
+		SpanID:     event.SpanID,
+		TraceState: event.TraceState,
+	}
+}
+
 func (a *Agent) estimatedTokens(messages []Message) int {
 	a.mu.Lock()
 	counter := a.tokenCount
@@ -894,10 +942,12 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 	if event.RunID == "" {
 		event.RunID = runIDFromContext(ctx)
 	}
+	trace := applyTraceContextToEvent(ctx, &event)
 	if event.Error != nil && event.ErrorCategory == "" {
 		event.ErrorCategory = classifyError(event.Error)
 	}
 	setAgentErrorRunID(event.Error, event.RunID)
+	setAgentErrorTraceContext(event.Error, trace)
 	setAgentErrorParentRequestID(event.Error, event.ParentRequestID)
 
 	notifyObserver(ctx, observer, event)
@@ -916,6 +966,7 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 			wrapped.ToolName = event.ToolName
 			wrapped.SubagentID = event.SubagentID
 			wrapped.Round = event.Round
+			setAgentErrorTraceContext(wrapped, trace)
 			return wrapped
 		}
 	}

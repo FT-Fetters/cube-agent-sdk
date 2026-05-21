@@ -32,9 +32,9 @@ _ = reply
 
 ## AgentError
 
-`AgentError` carries category, operation, agent ID, request ID, parent request
-ID, tool name, subagent ID, round, and the wrapped cause. Use `errors.As` when
-audit context is needed.
+`AgentError` carries category, operation, agent ID, run ID, trace ID, span ID,
+trace state, request ID, parent request ID, tool name, subagent ID, round, and
+the wrapped cause. Use `errors.As` when audit context is needed.
 
 ```go
 var agentErr *agent.AgentError

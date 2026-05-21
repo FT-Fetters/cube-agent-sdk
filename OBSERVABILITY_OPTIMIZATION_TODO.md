@@ -22,7 +22,7 @@
 - [x] **2. Add parent correlation for nested events.**
   Add a parent request or run correlation field to observations so a model call, its tool calls, and follow-up model calls can be reconstructed in logs and traces.
 
-- [ ] **3. Support trace metadata from context.**
+- [x] **3. Support trace metadata from context.**
   Allow applications to put external trace metadata in `context.Context` and have the SDK surface safe correlation metadata in observations without depending on a tracing library.
 
 - [ ] **4. Add model usage to responses.**

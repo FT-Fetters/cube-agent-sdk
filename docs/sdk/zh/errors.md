@@ -32,8 +32,8 @@ _ = reply
 
 ## AgentError
 
-`AgentError` 携带 category、operation、agent ID、request ID、parent request ID、
-tool name、subagent ID、round 和被包装的 cause。需要审计上下文时使用
+`AgentError` 携带 category、operation、agent ID、run ID、trace ID、span ID、
+trace state、request ID、parent request ID、tool name、subagent ID、round 和被包装的 cause。需要审计上下文时使用
 `errors.As`。
 
 ```go

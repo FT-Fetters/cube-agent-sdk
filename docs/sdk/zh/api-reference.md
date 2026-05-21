@@ -138,6 +138,9 @@
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
+- `TraceContext`
+- `WithTraceContext`
+- `TraceContextFromContext`
 
 ## 错误
 

@@ -297,6 +297,114 @@ func TestAgentGeneratesStableRunIDsPerRun(t *testing.T) {
 	}
 }
 
+func TestAgentTraceContextPropagatesToRunEventsObservationsAndErrors(t *testing.T) {
+	type unrelatedContextKey struct{}
+	trace := TraceContext{
+		TraceID:    "trace-run-123",
+		SpanID:     "span-run-456",
+		TraceState: "vendor=state",
+	}
+	ctx := context.WithValue(context.Background(), unrelatedContextKey{}, "context-secret")
+	ctx = WithTraceContext(ctx, trace)
+
+	toolErr := errors.New("tool failed")
+	model := &recordingModel{responses: []ModelResponse{
+		{ToolCalls: []ToolCall{{ID: "call-1", Name: "fail", Arguments: map[string]any{"path": "/"}}}},
+	}}
+	compactor := &recordingCompactor{
+		result: []Message{{Role: RoleSystem, Content: "summary"}},
+	}
+	recorder := &recordingObserver{}
+	var events []Event
+	bot, err := New(Config{
+		ID:           "trace-agent",
+		SystemPrompt: "base",
+		Compact: CompactConfig{
+			MaxTokens: 2,
+			Threshold: 1,
+		},
+	}, model,
+		WithSkills(Skill{Name: "planner", Instructions: "Plan carefully."}),
+		WithCompactor(compactor),
+		WithTokenCounter(TokenCounterFunc(func(Message) int { return 1 })),
+		WithObserver(recorder),
+		WithTools(ToolFunc{
+			ToolName:        "fail",
+			ToolDescription: "Fails with a stable error",
+			Fn: func(context.Context, ToolCall) (ToolResult, error) {
+				return ToolResult{}, toolErr
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.AppendMessage(Message{Role: RoleUser, Content: "before"})
+
+	_, err = bot.Run(ctx, "use fail", WithRunSkills("planner"))
+	if !errors.Is(err, toolErr) {
+		t.Fatalf("err = %v, want tool error", err)
+	}
+	var agentErr *AgentError
+	if !errors.As(err, &agentErr) {
+		t.Fatalf("err = %T, want *AgentError", err)
+	}
+	assertAgentErrorTraceContext(t, agentErr, trace)
+	if agentErr.RunID == "" || agentErr.RunID == trace.TraceID {
+		t.Fatalf("agent error run ID = %q, want generated ID distinct from trace ID %q", agentErr.RunID, trace.TraceID)
+	}
+
+	required := []EventType{
+		EventSkillActivated,
+		EventBeforeCompact,
+		EventAfterCompact,
+		EventBeforeModel,
+		EventAfterModel,
+		EventBeforeApproval,
+		EventAfterApproval,
+		EventBeforeTool,
+		EventAfterTool,
+	}
+	for _, eventType := range required {
+		event := firstEventOfType(t, events, eventType)
+		assertEventTraceContext(t, event, trace)
+		if event.RunID == "" || event.RunID == trace.TraceID {
+			t.Fatalf("%s run ID = %q, want generated ID distinct from trace ID %q", eventType, event.RunID, trace.TraceID)
+		}
+	}
+
+	observations := recorder.Observations()
+	for _, eventType := range required {
+		observation := firstObservationOfType(t, observations, eventType)
+		assertObservationTraceContext(t, observation, trace)
+		if observation.RunID == "" || observation.RunID == trace.TraceID {
+			t.Fatalf("%s observation run ID = %q, want generated ID distinct from trace ID %q", eventType, observation.RunID, trace.TraceID)
+		}
+		assertObservationDoesNotContain(t, observation, "context-secret")
+	}
+
+	child, err := bot.SpawnSubagent(ctx, SubagentOptions{
+		ID:    "worker-1",
+		Model: &recordingModel{responses: []ModelResponse{{Message: Message{Role: RoleAssistant, Content: "child"}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.ID() != "worker-1" {
+		t.Fatalf("child ID = %q, want worker-1", child.ID())
+	}
+	subagentEvent := events[len(events)-1]
+	if subagentEvent.Type != EventSubagentMessage {
+		t.Fatalf("last event = %#v, want subagent message", subagentEvent)
+	}
+	assertEventTraceContext(t, subagentEvent, trace)
+	assertObservationTraceContext(t, recorder.Observations()[len(recorder.Observations())-1], trace)
+}
+
 func TestAgentToolPreflightFailuresEmitAfterToolAuditEvent(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -1173,6 +1281,53 @@ func TestAgentRunStreamCarriesRunIDInObservationsAndErrors(t *testing.T) {
 	}
 }
 
+func TestAgentRunStreamPropagatesTraceContextToObservationsAndStreamErrors(t *testing.T) {
+	trace := TraceContext{
+		TraceID:    "trace-stream-123",
+		SpanID:     "span-stream-456",
+		TraceState: "vendor=stream",
+	}
+	ctx := WithTraceContext(context.Background(), trace)
+	streamErr := errors.New("stream interrupted")
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventError, Error: streamErr},
+	}}
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-trace-agent"}, model, WithObserver(recorder))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := agent.RunStream(ctx, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+
+	if len(got) != 1 || got[0].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want one error event", got)
+	}
+	var agentErr *AgentError
+	if !errors.As(got[0].Error, &agentErr) {
+		t.Fatalf("stream error = %T, want *AgentError", got[0].Error)
+	}
+	assertAgentErrorTraceContext(t, agentErr, trace)
+	if agentErr.RunID == "" || agentErr.RunID == trace.TraceID {
+		t.Fatalf("stream error run ID = %q, want generated ID distinct from trace ID %q", agentErr.RunID, trace.TraceID)
+	}
+
+	beforeModel := firstObservationOfType(t, recorder.Observations(), EventBeforeModel)
+	afterModel := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	assertObservationTraceContext(t, beforeModel, trace)
+	assertObservationTraceContext(t, afterModel, trace)
+	if beforeModel.RunID == "" || beforeModel.RunID != afterModel.RunID || beforeModel.RunID == trace.TraceID {
+		t.Fatalf("stream observation run IDs = %q/%q, want matching generated IDs distinct from trace ID %q", beforeModel.RunID, afterModel.RunID, trace.TraceID)
+	}
+	if beforeModel.RequestID == "" || beforeModel.RequestID != afterModel.RequestID {
+		t.Fatalf("stream observation request IDs = %q/%q, want matching non-empty IDs", beforeModel.RequestID, afterModel.RequestID)
+	}
+}
+
 func TestAgentRunStreamRejectsStreamedToolCalls(t *testing.T) {
 	ctx := context.Background()
 	model := &streamingRecordingModel{streamEvents: []StreamEvent{
@@ -2007,6 +2162,48 @@ func firstEventOfTypeAndRound(t *testing.T, events []Event, eventType EventType,
 	}
 	t.Fatalf("events = %#v, want %s in round %d", events, eventType, round)
 	return Event{}
+}
+
+func assertEventTraceContext(t *testing.T, event Event, trace TraceContext) {
+	t.Helper()
+	if event.TraceID != trace.TraceID || event.SpanID != trace.SpanID || event.TraceState != trace.TraceState {
+		t.Fatalf("event trace context = %q/%q/%q, want %q/%q/%q",
+			event.TraceID,
+			event.SpanID,
+			event.TraceState,
+			trace.TraceID,
+			trace.SpanID,
+			trace.TraceState,
+		)
+	}
+}
+
+func assertObservationTraceContext(t *testing.T, observation Observation, trace TraceContext) {
+	t.Helper()
+	if observation.TraceID != trace.TraceID || observation.SpanID != trace.SpanID || observation.TraceState != trace.TraceState {
+		t.Fatalf("observation trace context = %q/%q/%q, want %q/%q/%q",
+			observation.TraceID,
+			observation.SpanID,
+			observation.TraceState,
+			trace.TraceID,
+			trace.SpanID,
+			trace.TraceState,
+		)
+	}
+}
+
+func assertAgentErrorTraceContext(t *testing.T, agentErr *AgentError, trace TraceContext) {
+	t.Helper()
+	if agentErr.TraceID != trace.TraceID || agentErr.SpanID != trace.SpanID || agentErr.TraceState != trace.TraceState {
+		t.Fatalf("agent error trace context = %q/%q/%q, want %q/%q/%q",
+			agentErr.TraceID,
+			agentErr.SpanID,
+			agentErr.TraceState,
+			trace.TraceID,
+			trace.SpanID,
+			trace.TraceState,
+		)
+	}
 }
 
 func hasEventForAgent(events []Event, agentID string, eventType EventType) bool {

@@ -335,6 +335,49 @@ func (AllowAllApproval) ApproveTool(context.Context, ApprovalRequest) (ApprovalD
 	return ApprovalDecision{Approved: true, Reason: "allowed"}, nil
 }
 
+// TraceContext carries caller-provided trace correlation metadata. Values should
+// be non-sensitive identifiers because the SDK surfaces them in lifecycle
+// events, observations, and structured errors.
+type TraceContext struct {
+	TraceID    string
+	SpanID     string
+	TraceState string
+}
+
+type traceContextKey struct{}
+
+// WithTraceContext attaches trace correlation metadata to ctx. The SDK only
+// reads this typed value and does not inspect arbitrary context values.
+func WithTraceContext(ctx context.Context, trace TraceContext) context.Context {
+	trace = normalizeTraceContext(trace)
+	if trace == (TraceContext{}) {
+		return ctx
+	}
+	return context.WithValue(ctx, traceContextKey{}, trace)
+}
+
+// TraceContextFromContext returns trace correlation metadata previously attached
+// with WithTraceContext.
+func TraceContextFromContext(ctx context.Context) (TraceContext, bool) {
+	if ctx == nil {
+		return TraceContext{}, false
+	}
+	trace, ok := ctx.Value(traceContextKey{}).(TraceContext)
+	if !ok {
+		return TraceContext{}, false
+	}
+	trace = normalizeTraceContext(trace)
+	return trace, trace != (TraceContext{})
+}
+
+func normalizeTraceContext(trace TraceContext) TraceContext {
+	return TraceContext{
+		TraceID:    strings.TrimSpace(trace.TraceID),
+		SpanID:     strings.TrimSpace(trace.SpanID),
+		TraceState: strings.TrimSpace(trace.TraceState),
+	}
+}
+
 // ErrorCategory groups operational failures so callers can audit and branch
 // without relying on provider-specific error text.
 type ErrorCategory string
@@ -355,11 +398,14 @@ const (
 // AgentError adds stable SDK context around an underlying error. Unwrap keeps
 // existing sentinel checks such as errors.Is(err, ErrApprovalDenied) working.
 type AgentError struct {
-	Category  ErrorCategory
-	Operation string
-	AgentID   string
-	RunID     string
-	RequestID string
+	Category   ErrorCategory
+	Operation  string
+	AgentID    string
+	RunID      string
+	TraceID    string
+	SpanID     string
+	TraceState string
+	RequestID  string
 	// ParentRequestID links nested failures to the request that caused them.
 	ParentRequestID string
 	ToolName        string
@@ -421,6 +467,9 @@ type Event struct {
 	ToolName   string
 	ToolRisk   ToolRisk
 	SkillName  string
+	TraceID    string
+	SpanID     string
+	TraceState string
 	RequestID  string
 	// ParentRequestID links nested lifecycle events to the request that caused them.
 	ParentRequestID string
@@ -468,6 +517,9 @@ type Observation struct {
 	ToolName   string
 	ToolRisk   ToolRisk
 	SkillName  string
+	TraceID    string
+	SpanID     string
+	TraceState string
 	RequestID  string
 	// ParentRequestID links nested telemetry records to the request that caused them.
 	ParentRequestID string
@@ -490,6 +542,9 @@ func ObservationFromEvent(event Event) Observation {
 		ToolName:        event.ToolName,
 		ToolRisk:        event.ToolRisk,
 		SkillName:       event.SkillName,
+		TraceID:         event.TraceID,
+		SpanID:          event.SpanID,
+		TraceState:      event.TraceState,
 		RequestID:       event.RequestID,
 		ParentRequestID: event.ParentRequestID,
 		Round:           event.Round,
