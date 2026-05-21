@@ -70,7 +70,7 @@
 - [x] **18. Add safe tool result metadata.**
   Add safe result metadata such as result size, metadata keys, and MCP error status without exposing result content.
 
-- [ ] **19. Split tool lifecycle timing.**
+- [x] **19. Split tool lifecycle timing.**
   Make validation, approval, and execution timing easy to distinguish in observations.
 
 - [ ] **20. Add OpenTelemetry integration example.**

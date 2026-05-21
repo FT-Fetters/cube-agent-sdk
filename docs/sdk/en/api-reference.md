@@ -159,7 +159,9 @@ method-level details while keeping this page as a navigation aid.
 - `DefaultMetricsEventCounterName`
 - `DefaultMetricsFailureCounterName`
 - `DefaultMetricsDurationName`
+- `DefaultMetricsToolLifecycleDurationName`
 - `StreamTelemetry`
+- `ToolLifecycleTiming`
 - `ToolResultMetadata`
 - `Observation`
 - `ObservationFromEvent`
@@ -173,6 +175,9 @@ lifecycle records when the registered tool has a parameter schema.
 After-tool observations include `ToolResultMetadata` with result content byte
 size, sorted result metadata key names, and MCP `mcpIsError` status when
 present.
+After-tool observations also include `ToolTiming`, a `ToolLifecycleTiming`
+value that separates validation, approval, and execution durations while
+`Duration` remains the total tool lifecycle duration.
 
 ## Errors
 

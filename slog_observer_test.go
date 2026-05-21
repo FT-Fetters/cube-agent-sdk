@@ -50,6 +50,7 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 		ErrorCategory:         ErrorCategoryTool,
 		Failed:                true,
 	}, "sha256:slog-schema-hash")
+	observation = observationWithToolLifecycleTiming(t, observation, 10*time.Millisecond, 20*time.Millisecond, 30*time.Millisecond)
 
 	observer.Observe(context.Background(), observation)
 
@@ -82,6 +83,10 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 	assertSlogField(t, tool, "name", "lookup")
 	assertSlogField(t, tool, "risk", string(ToolRiskRead))
 	assertSlogField(t, tool, "schema_hash", "sha256:slog-schema-hash")
+	timing := assertSlogGroup(t, tool, "timing")
+	assertSlogField(t, timing, "validation_ms", float64(10))
+	assertSlogField(t, timing, "approval_ms", float64(20))
+	assertSlogField(t, timing, "execution_ms", float64(30))
 
 	approval := assertSlogGroup(t, record, "approval")
 	assertSlogField(t, approval, "approved", true)

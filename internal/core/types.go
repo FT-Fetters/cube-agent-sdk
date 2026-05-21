@@ -755,6 +755,8 @@ type Event struct {
 	Round           int
 	Duration        time.Duration
 	EstimatedTokens int
+	// ToolTiming reports validation, approval, and execution timing for after-tool events.
+	ToolTiming ToolLifecycleTiming
 	// TokenUsage reports provider or custom-model token counts when available.
 	TokenUsage            TokenUsage
 	StreamTelemetry       StreamTelemetry
@@ -805,6 +807,21 @@ type StreamTelemetry struct {
 	ThroughputBytesPerSecond float64
 }
 
+// ToolLifecycleTiming contains safe duration segments for a tool call. Duration
+// on Event and Observation remains the total tool lifecycle duration.
+type ToolLifecycleTiming struct {
+	// Validation is time spent validating tool arguments before approval.
+	Validation time.Duration
+	// Approval is time spent waiting for the approval policy decision.
+	Approval time.Duration
+	// Execution is time spent in the tool implementation after approval.
+	Execution time.Duration
+}
+
+func (t ToolLifecycleTiming) isZero() bool {
+	return t.Validation == 0 && t.Approval == 0 && t.Execution == 0
+}
+
 // ToolResultMetadata contains safe metadata about a tool result. It never
 // includes result content, metadata values, tool arguments, raw errors, or
 // structured MCP content values.
@@ -844,6 +861,9 @@ type Observation struct {
 	Round           int
 	Duration        time.Duration
 	EstimatedTokens int
+	// ToolTiming reports safe validation, approval, and execution durations for
+	// after-tool observations. Duration keeps its total lifecycle meaning.
+	ToolTiming ToolLifecycleTiming
 	// TokenUsage reports sanitized real token counts when a model reports them.
 	TokenUsage TokenUsage
 	// StreamTelemetry reports sanitized counters and durations for streaming runs.
@@ -881,6 +901,7 @@ func ObservationFromEvent(event Event) Observation {
 		Round:                 event.Round,
 		Duration:              event.Duration,
 		EstimatedTokens:       event.EstimatedTokens,
+		ToolTiming:            event.ToolTiming,
 		TokenUsage:            event.TokenUsage,
 		StreamTelemetry:       event.StreamTelemetry,
 		ProviderDiagnostics:   event.ProviderDiagnostics,

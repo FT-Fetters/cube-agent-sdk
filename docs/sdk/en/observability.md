@@ -52,6 +52,14 @@ observer := agent.ObserverFunc(func(ctx context.Context, observation agent.Obser
 		observation.Round,
 		observation.Failed,
 	)
+	if observation.Type == agent.EventAfterTool {
+		timing := observation.ToolTiming
+		log.Printf("tool_timing validation=%s approval=%s execution=%s",
+			timing.Validation,
+			timing.Approval,
+			timing.Execution,
+		)
+	}
 })
 
 bot, err := agent.New(cfg, model, agent.WithObserver(observer))
@@ -134,11 +142,11 @@ only emitted when the application installs `MetricsObserver` with a sink.
 Events and observations carry audit fields such as event type, agent ID,
 run ID, trace ID, span ID, trace state, subagent ID, request ID, parent request
 ID, round, duration, estimated tokens, real token usage, streaming telemetry,
-tool name, tool risk, tool schema hash, approval result, skill name, error
-category, model error subcategory, safe tool result metadata, and safe provider
-diagnostics for model failures. `ParentRequestID` links tool and approval events
-to the model request that caused them, and links follow-up model requests within
-the same run.
+tool name, tool risk, tool schema hash, tool lifecycle timing, approval result,
+skill name, error category, model error subcategory, safe tool result metadata,
+and safe provider diagnostics for model failures. `ParentRequestID` links tool
+and approval events to the model request that caused them, and links follow-up
+model requests within the same run.
 
 Tool and approval lifecycle records include `ToolSchemaHash` when the tool has
 a parameter schema. The hash is deterministic over the parameter schema and
@@ -149,6 +157,12 @@ After-tool observations include `ToolResultMetadata` with result content byte
 size, sorted result metadata key names, and MCP `mcpIsError` status when
 present. They do not include result content, metadata values, structured MCP
 content values, tool arguments, raw errors, or secrets.
+
+After-tool observations also include `ToolTiming` with validation, approval, and
+execution duration segments. Segment durations that were not reached stay zero,
+and `Duration` remains the total tool lifecycle duration. These fields contain
+only durations and do not include tool arguments, results, metadata values, raw
+errors, prompts, or credentials.
 
 `EstimatedTokens` is the SDK's request-side estimate and stays populated even
 when the provider does not report usage. `TokenUsage` carries real input,
@@ -175,14 +189,18 @@ environment values.
 
 `SlogObserver` logs `event` and `failed` on every record. It omits other
 zero-value fields, emits duration as `duration_ms`, and groups token usage, tool
-metadata, stream telemetry, approval metadata, and provider diagnostics as
-structured attributes.
+metadata, `tool.timing`, stream telemetry, approval metadata, and provider
+diagnostics as structured attributes.
 
 `MetricsObserver` increments `agent_observations_total` for every observation,
 increments `agent_observation_failures_total` for failed observations, and
-records positive durations as `agent_observation_duration`. Metric labels are
+records positive durations as `agent_observation_duration`. Positive tool
+lifecycle segments are recorded as `agent_tool_lifecycle_duration` with
+`tool_phase` values of `validation`, `approval`, or `execution`; these segment
+metrics omit `tool_name` to avoid high-cardinality labels. Metric labels are
 limited to `event`, `failed`, `error_category`, `model_error_subcategory`,
-`tool_name`, `tool_risk`, `provider`, and `http_status` when present. Run IDs,
-request IDs, trace IDs, provider request IDs, `ToolSchemaHash`, tool result
-metadata keys, and MCP result status are intentionally omitted from metric labels
-by default.
+`tool_name`, `tool_risk`, `provider`, and `http_status` when present on general
+observation metrics, and to low-cardinality tool timing labels on lifecycle
+segment metrics. Run IDs, request IDs, trace IDs, provider request IDs,
+`ToolSchemaHash`, tool result metadata keys, and MCP result status are
+intentionally omitted from metric labels by default.

@@ -102,6 +102,58 @@ func TestMetricsObserverDoesNotLabelToolResultMetadata(t *testing.T) {
 	assertMetricLabelsOmitToolResultMetadata(t, calls)
 }
 
+func TestMetricsObserverRecordsToolLifecycleTimingSegmentsWithSafeLabels(t *testing.T) {
+	sink := &recordingMetricSink{}
+	observer := NewMetricsObserver(MetricsObserverOptions{Sink: sink})
+	observation := observationWithToolLifecycleTiming(t, Observation{
+		Type:            EventAfterTool,
+		AgentID:         "agent-1",
+		RunID:           "run-1",
+		SubagentID:      "worker-1",
+		TraceID:         "trace-1",
+		SpanID:          "span-1",
+		TraceState:      "vendor=state",
+		RequestID:       "request-1",
+		ParentRequestID: "parent-request-1",
+		ToolName:        "lookup",
+		ToolRisk:        ToolRiskWrite,
+		ErrorCategory:   ErrorCategoryApproval,
+		Failed:          true,
+	}, 11*time.Millisecond, 22*time.Millisecond, 0)
+
+	observer.Observe(context.Background(), observation)
+
+	calls := sink.Calls()
+	if len(calls) != 4 {
+		t.Fatalf("metric calls = %d, want 4: %#v", len(calls), calls)
+	}
+	baseLabels := []MetricLabel{
+		{Name: "event", Value: string(EventAfterTool)},
+		{Name: "failed", Value: "true"},
+		{Name: "error_category", Value: string(ErrorCategoryApproval)},
+		{Name: "tool_name", Value: "lookup"},
+		{Name: "tool_risk", Value: string(ToolRiskWrite)},
+	}
+	assertMetricCounterCall(t, calls[0], DefaultMetricsEventCounterName, 1, baseLabels)
+	assertMetricCounterCall(t, calls[1], DefaultMetricsFailureCounterName, 1, baseLabels)
+	assertMetricDurationCall(t, calls[2], DefaultMetricsToolLifecycleDurationName, 11*time.Millisecond, []MetricLabel{
+		{Name: "event", Value: string(EventAfterTool)},
+		{Name: "failed", Value: "true"},
+		{Name: "error_category", Value: string(ErrorCategoryApproval)},
+		{Name: "tool_risk", Value: string(ToolRiskWrite)},
+		{Name: "tool_phase", Value: "validation"},
+	})
+	assertMetricDurationCall(t, calls[3], DefaultMetricsToolLifecycleDurationName, 22*time.Millisecond, []MetricLabel{
+		{Name: "event", Value: string(EventAfterTool)},
+		{Name: "failed", Value: "true"},
+		{Name: "error_category", Value: string(ErrorCategoryApproval)},
+		{Name: "tool_risk", Value: string(ToolRiskWrite)},
+		{Name: "tool_phase", Value: "approval"},
+	})
+	assertMetricLabelsOmitHighCardinalityFields(t, calls)
+	assertMetricLabelsOmitToolLifecycleTimingHighCardinalityFields(t, calls)
+}
+
 type recordingMetricSink struct {
 	calls []metricCall
 }
@@ -219,6 +271,20 @@ func assertMetricLabelsOmitToolResultMetadata(t *testing.T, calls []metricCall) 
 			}
 			if _, ok := disallowedValues[label.Value]; ok {
 				t.Fatalf("metric labels included tool result metadata value %q in call %#v", label.Value, call)
+			}
+		}
+	}
+}
+
+func assertMetricLabelsOmitToolLifecycleTimingHighCardinalityFields(t *testing.T, calls []metricCall) {
+	t.Helper()
+	for _, call := range calls {
+		if call.name != DefaultMetricsToolLifecycleDurationName {
+			continue
+		}
+		for _, label := range call.labels {
+			if label.Name == "tool_name" || label.Value == "lookup" {
+				t.Fatalf("tool lifecycle metric labels included high-cardinality tool name in call %#v", call)
 			}
 		}
 	}

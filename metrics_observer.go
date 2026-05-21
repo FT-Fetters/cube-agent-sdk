@@ -14,6 +14,8 @@ const (
 	DefaultMetricsFailureCounterName = "agent_observation_failures_total"
 	// DefaultMetricsDurationName records positive observation durations.
 	DefaultMetricsDurationName = "agent_observation_duration"
+	// DefaultMetricsToolLifecycleDurationName records positive tool lifecycle segment durations.
+	DefaultMetricsToolLifecycleDurationName = "agent_tool_lifecycle_duration"
 )
 
 // MetricLabel is a single low-cardinality metric dimension.
@@ -42,6 +44,8 @@ type MetricsObserverOptions struct {
 	FailureCounterName string
 	// DurationName overrides the default positive duration recording name.
 	DurationName string
+	// ToolLifecycleDurationName overrides the default tool lifecycle segment duration name.
+	ToolLifecycleDurationName string
 }
 
 // MetricsObserver records sanitized observation metrics through a caller-owned
@@ -52,6 +56,7 @@ type MetricsObserver struct {
 	eventCounterName   string
 	failureCounterName string
 	durationName       string
+	toolLifecycleName  string
 }
 
 // NewMetricsObserver returns an Observer that emits counters and positive
@@ -62,6 +67,7 @@ func NewMetricsObserver(options MetricsObserverOptions) MetricsObserver {
 		eventCounterName:   defaultMetricName(options.EventCounterName, DefaultMetricsEventCounterName),
 		failureCounterName: defaultMetricName(options.FailureCounterName, DefaultMetricsFailureCounterName),
 		durationName:       defaultMetricName(options.DurationName, DefaultMetricsDurationName),
+		toolLifecycleName:  defaultMetricName(options.ToolLifecycleDurationName, DefaultMetricsToolLifecycleDurationName),
 	}
 }
 
@@ -76,6 +82,26 @@ func (o MetricsObserver) Observe(ctx context.Context, observation Observation) {
 	}
 	if observation.Duration > 0 {
 		o.sink.RecordDuration(ctx, o.durationName, observation.Duration, cloneMetricLabels(labels))
+	}
+	o.recordToolLifecycleDurations(ctx, observation)
+}
+
+func (o MetricsObserver) recordToolLifecycleDurations(ctx context.Context, observation Observation) {
+	if observation.Type != EventAfterTool {
+		return
+	}
+	for _, segment := range []struct {
+		phase    string
+		duration time.Duration
+	}{
+		{phase: "validation", duration: observation.ToolTiming.Validation},
+		{phase: "approval", duration: observation.ToolTiming.Approval},
+		{phase: "execution", duration: observation.ToolTiming.Execution},
+	} {
+		if segment.duration <= 0 {
+			continue
+		}
+		o.sink.RecordDuration(ctx, o.toolLifecycleName, segment.duration, metricsToolLifecycleLabels(observation, segment.phase))
 	}
 }
 
@@ -100,6 +126,17 @@ func metricsObservationLabels(observation Observation) []MetricLabel {
 	if observation.ProviderDiagnostics.HTTPStatus > 0 {
 		labels = append(labels, MetricLabel{Name: "http_status", Value: strconv.Itoa(observation.ProviderDiagnostics.HTTPStatus)})
 	}
+	return labels
+}
+
+func metricsToolLifecycleLabels(observation Observation, phase string) []MetricLabel {
+	labels := []MetricLabel{
+		{Name: "event", Value: strings.TrimSpace(string(observation.Type))},
+		{Name: "failed", Value: strconv.FormatBool(observation.Failed)},
+	}
+	labels = appendMetricLabel(labels, "error_category", string(observation.ErrorCategory))
+	labels = appendMetricLabel(labels, "tool_risk", string(observation.ToolRisk))
+	labels = appendMetricLabel(labels, "tool_phase", phase)
 	return labels
 }
 

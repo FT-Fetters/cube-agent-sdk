@@ -161,6 +161,7 @@ type Observer = core.Observer
 type ObserverFunc = core.ObserverFunc
 type NoopObserver = core.NoopObserver
 type StreamTelemetry = core.StreamTelemetry
+type ToolLifecycleTiming = core.ToolLifecycleTiming
 type ToolResultMetadata = core.ToolResultMetadata
 type Observation = core.Observation
 

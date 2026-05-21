@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultAndNoopObserverDoNotAffectRun(t *testing.T) {
@@ -342,6 +343,176 @@ func TestToolResultMetadataObservationFromToolExecutionDoesNotLeakPayloads(t *te
 	}
 }
 
+func TestToolLifecycleTimingObservationSegmentsSuccessDeniedAndValidationFailure(t *testing.T) {
+	ctx := context.Background()
+	const (
+		argumentSecret = "timing-argument-secret"
+		resultSecret   = "timing-result-secret"
+		metadataSecret = "timing-metadata-secret"
+		rawErrorSecret = "timing-raw-error-secret"
+	)
+	tests := []struct {
+		name          string
+		toolCall      ToolCall
+		options       []Option
+		wantErr       error
+		wantCategory  ErrorCategory
+		wantApproval  bool
+		wantExecution bool
+	}{
+		{
+			name: "success",
+			toolCall: ToolCall{
+				ID:        "call-1",
+				Name:      "lookup",
+				Arguments: map[string]any{"query": argumentSecret},
+			},
+			options: []Option{WithTools(ToolFunc{
+				ToolName:        "lookup",
+				ToolDescription: "Lookup data",
+				Parameters:      requiredQuerySchema(),
+				ToolRisk:        ToolRiskRead,
+				Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+					return ToolResult{
+						CallID:  call.ID,
+						Name:    call.Name,
+						Content: resultSecret,
+						Metadata: map[string]any{
+							"secretKey": metadataSecret,
+						},
+					}, nil
+				},
+			})},
+			wantApproval:  true,
+			wantExecution: true,
+		},
+		{
+			name: "approval denied",
+			toolCall: ToolCall{
+				ID:        "call-1",
+				Name:      "lookup",
+				Arguments: map[string]any{"query": argumentSecret},
+			},
+			options: []Option{
+				WithTools(ToolFunc{
+					ToolName:        "lookup",
+					ToolDescription: "Lookup data",
+					Parameters:      requiredQuerySchema(),
+					ToolRisk:        ToolRiskWrite,
+					Fn: func(context.Context, ToolCall) (ToolResult, error) {
+						t.Fatal("tool should not execute when approval is denied")
+						return ToolResult{}, nil
+					},
+				}),
+				WithApprovalPolicy(ApprovalFunc(func(context.Context, ApprovalRequest) (ApprovalDecision, error) {
+					return ApprovalDecision{Approved: false, Reason: "blocked by policy"}, nil
+				})),
+			},
+			wantErr:      ErrApprovalDenied,
+			wantCategory: ErrorCategoryApproval,
+			wantApproval: true,
+		},
+		{
+			name: "validation failure",
+			toolCall: ToolCall{
+				ID:        "call-1",
+				Name:      "lookup",
+				Arguments: map[string]any{"query": 42},
+			},
+			options: []Option{WithTools(ToolFunc{
+				ToolName:        "lookup",
+				ToolDescription: "Lookup data",
+				Parameters:      requiredQuerySchema(),
+				ToolRisk:        ToolRiskRead,
+				Fn: func(context.Context, ToolCall) (ToolResult, error) {
+					t.Fatal("tool should not execute when validation fails")
+					return ToolResult{}, nil
+				},
+			})},
+			wantErr:      ErrToolValidation,
+			wantCategory: ErrorCategorySchema,
+		},
+		{
+			name: "approval policy error",
+			toolCall: ToolCall{
+				ID:        "call-1",
+				Name:      "lookup",
+				Arguments: map[string]any{"query": argumentSecret},
+			},
+			options: []Option{
+				WithTools(ToolFunc{
+					ToolName:        "lookup",
+					ToolDescription: "Lookup data",
+					Parameters:      requiredQuerySchema(),
+					ToolRisk:        ToolRiskWrite,
+					Fn: func(context.Context, ToolCall) (ToolResult, error) {
+						t.Fatal("tool should not execute when approval returns an error")
+						return ToolResult{}, nil
+					},
+				}),
+				WithApprovalPolicy(ApprovalFunc(func(context.Context, ApprovalRequest) (ApprovalDecision, error) {
+					return ApprovalDecision{}, errors.New(rawErrorSecret)
+				})),
+			},
+			wantErr:      errors.New(rawErrorSecret),
+			wantCategory: ErrorCategoryApproval,
+			wantApproval: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := &recordingObserver{}
+			model := &recordingModel{responses: []ModelResponse{
+				{ToolCalls: []ToolCall{tt.toolCall}},
+				{Message: Message{Role: RoleAssistant, Content: "done"}},
+			}}
+			options := append([]Option{WithObserver(recorder)}, tt.options...)
+			bot, err := New(Config{ID: "tool-timing-agent", SystemPrompt: "base"}, model, options...)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = bot.Run(ctx, "use tool")
+			if tt.wantErr != nil {
+				if err == nil {
+					t.Fatalf("Run error = nil, want %v", tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+
+			afterTool := firstObservationOfType(t, recorder.Observations(), EventAfterTool)
+			timing := toolLifecycleTimingFromObservation(t, afterTool)
+			assertNonNegativeToolLifecycleTiming(t, timing)
+			if afterTool.Duration <= 0 {
+				t.Fatalf("after tool duration = %s, want positive total duration", afterTool.Duration)
+			}
+			if timing.validation <= 0 {
+				t.Fatalf("tool validation timing = %s, want positive duration", timing.validation)
+			}
+			if tt.wantApproval && timing.approval <= 0 {
+				t.Fatalf("tool approval timing = %s, want positive duration", timing.approval)
+			}
+			if !tt.wantApproval && timing.approval != 0 {
+				t.Fatalf("tool approval timing = %s, want zero before approval starts", timing.approval)
+			}
+			if tt.wantExecution && timing.execution <= 0 {
+				t.Fatalf("tool execution timing = %s, want positive duration", timing.execution)
+			}
+			if !tt.wantExecution && timing.execution != 0 {
+				t.Fatalf("tool execution timing = %s, want zero when tool execution is skipped", timing.execution)
+			}
+			if tt.wantCategory != "" && (!afterTool.Failed || afterTool.ErrorCategory != tt.wantCategory) {
+				t.Fatalf("after tool error fields = failed %t category %q, want failed %q", afterTool.Failed, afterTool.ErrorCategory, tt.wantCategory)
+			}
+			for _, unsafe := range []string{argumentSecret, resultSecret, metadataSecret, rawErrorSecret} {
+				assertObservationDoesNotContain(t, afterTool, unsafe)
+			}
+		})
+	}
+}
+
 func TestObserverReceivesErrorCategoryWithoutInterruptingErrorPath(t *testing.T) {
 	ctx := context.Background()
 	recorder := &recordingObserver{}
@@ -562,6 +733,16 @@ type observedSchemaToolOptions struct {
 	schemaText    string
 }
 
+func requiredQuerySchema() *ToolParametersSchema {
+	return &ToolParametersSchema{
+		Type:     SchemaTypeObject,
+		Required: []string{"query"},
+		Properties: map[string]ToolParametersSchema{
+			"query": {Type: SchemaTypeString},
+		},
+	}
+}
+
 func runObservedSchemaTool(t *testing.T, ctx context.Context, options observedSchemaToolOptions) ([]Event, []Observation) {
 	t.Helper()
 	recorder := &recordingObserver{}
@@ -659,6 +840,49 @@ type observedToolResultMetadata struct {
 	mcpIsError   *bool
 }
 
+type observedToolLifecycleTiming struct {
+	validation time.Duration
+	approval   time.Duration
+	execution  time.Duration
+}
+
+func toolLifecycleTimingFromObservation(t *testing.T, observation Observation) observedToolLifecycleTiming {
+	t.Helper()
+	value := reflect.ValueOf(observation)
+	field := value.FieldByName("ToolTiming")
+	if !field.IsValid() {
+		t.Fatal("Observation.ToolTiming field is missing")
+	}
+	return observedToolLifecycleTiming{
+		validation: durationFieldByName(t, field, "Validation"),
+		approval:   durationFieldByName(t, field, "Approval"),
+		execution:  durationFieldByName(t, field, "Execution"),
+	}
+}
+
+func observationWithToolLifecycleTiming(t *testing.T, observation Observation, validation, approval, execution time.Duration) Observation {
+	t.Helper()
+	value := reflect.ValueOf(&observation).Elem()
+	field := value.FieldByName("ToolTiming")
+	if !field.IsValid() {
+		t.Fatal("Observation.ToolTiming field is missing")
+	}
+	if field.Kind() != reflect.Struct || !field.CanSet() {
+		t.Fatalf("Observation.ToolTiming = %s settable=%t, want settable struct", field.Kind(), field.CanSet())
+	}
+	setDurationFieldByName(t, field, "Validation", validation)
+	setDurationFieldByName(t, field, "Approval", approval)
+	setDurationFieldByName(t, field, "Execution", execution)
+	return observation
+}
+
+func assertNonNegativeToolLifecycleTiming(t *testing.T, timing observedToolLifecycleTiming) {
+	t.Helper()
+	if timing.validation < 0 || timing.approval < 0 || timing.execution < 0 {
+		t.Fatalf("tool lifecycle timing = %#v, want non-negative segment durations", timing)
+	}
+}
+
 func toolResultMetadataFromObservation(t *testing.T, observation Observation) observedToolResultMetadata {
 	t.Helper()
 	value := reflect.ValueOf(observation)
@@ -697,6 +921,30 @@ func intFieldByName(t *testing.T, value reflect.Value, name string) int {
 		t.Fatalf("%s.%s kind = %s, want int", value.Type(), name, field.Kind())
 	}
 	return int(field.Int())
+}
+
+func durationFieldByName(t *testing.T, value reflect.Value, name string) time.Duration {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("%s.%s field is missing", value.Type(), name)
+	}
+	if field.Type() != reflect.TypeOf(time.Duration(0)) {
+		t.Fatalf("%s.%s type = %s, want time.Duration", value.Type(), name, field.Type())
+	}
+	return time.Duration(field.Int())
+}
+
+func setDurationFieldByName(t *testing.T, value reflect.Value, name string, duration time.Duration) {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("%s.%s field is missing", value.Type(), name)
+	}
+	if field.Type() != reflect.TypeOf(time.Duration(0)) || !field.CanSet() {
+		t.Fatalf("%s.%s type = %s settable=%t, want settable time.Duration", value.Type(), name, field.Type(), field.CanSet())
+	}
+	field.SetInt(int64(duration))
 }
 
 func stringFieldByName(t *testing.T, value any, name string) string {

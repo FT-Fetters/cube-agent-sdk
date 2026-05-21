@@ -153,7 +153,27 @@ func toolSlogAttrs(observation Observation) []slog.Attr {
 	attrs = appendSlogString(attrs, "name", observation.ToolName)
 	attrs = appendSlogString(attrs, "risk", string(observation.ToolRisk))
 	attrs = appendSlogString(attrs, "schema_hash", observation.ToolSchemaHash)
+	if timingAttrs := toolLifecycleTimingSlogAttrs(observation.ToolTiming); timingAttrs != nil {
+		attrs = append(attrs, slogGroupAttr("timing", timingAttrs))
+	}
 	attrs = append(attrs, toolResultMetadataSlogAttrs(observation.ToolResultMetadata)...)
+	return attrs
+}
+
+func toolLifecycleTimingSlogAttrs(timing ToolLifecycleTiming) []slog.Attr {
+	if timing.Validation == 0 && timing.Approval == 0 && timing.Execution == 0 {
+		return nil
+	}
+	var attrs []slog.Attr
+	if timing.Validation > 0 {
+		attrs = append(attrs, slog.Float64("validation_ms", durationMilliseconds(timing.Validation)))
+	}
+	if timing.Approval > 0 {
+		attrs = append(attrs, slog.Float64("approval_ms", durationMilliseconds(timing.Approval)))
+	}
+	if timing.Execution > 0 {
+		attrs = append(attrs, slog.Float64("execution_ms", durationMilliseconds(timing.Execution)))
+	}
 	return attrs
 }
 
@@ -169,6 +189,10 @@ func toolResultMetadataSlogAttrs(metadata ToolResultMetadata) []slog.Attr {
 		attrs = append(attrs, slog.Bool("mcp_is_error", *metadata.MCPIsError))
 	}
 	return attrs
+}
+
+func durationMilliseconds(duration time.Duration) float64 {
+	return float64(duration) / float64(time.Millisecond)
 }
 
 func approvalSlogAttrs(observation Observation) []slog.Attr {

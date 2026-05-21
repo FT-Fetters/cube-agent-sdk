@@ -159,7 +159,9 @@
 - `DefaultMetricsEventCounterName`
 - `DefaultMetricsFailureCounterName`
 - `DefaultMetricsDurationName`
+- `DefaultMetricsToolLifecycleDurationName`
 - `StreamTelemetry`
+- `ToolLifecycleTiming`
 - `ToolResultMetadata`
 - `Observation`
 - `ObservationFromEvent`
@@ -172,6 +174,8 @@
 会包含 `ToolSchemaHash`。
 after-tool observations 会包含 `ToolResultMetadata`，其中包括结果内容字节数、
 排序后的结果 metadata key 名称，以及存在时的 MCP `mcpIsError` 状态。
+after-tool observations 也会包含 `ToolTiming`，它是 `ToolLifecycleTiming`
+值，用于区分 validation、approval 和 execution 耗时；`Duration` 仍表示整个工具生命周期总耗时。
 
 ## 错误
 

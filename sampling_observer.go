@@ -176,6 +176,7 @@ func writeObservationSampleHash(hasher hash.Hash64, observation Observation) {
 	writeObservationSampleInt(hasher, observation.Round)
 	writeObservationSampleInt64(hasher, observation.Duration.Nanoseconds())
 	writeObservationSampleInt(hasher, observation.EstimatedTokens)
+	writeObservationSampleToolLifecycleTiming(hasher, observation.ToolTiming)
 	writeObservationSampleInt(hasher, observation.TokenUsage.InputTokens)
 	writeObservationSampleInt(hasher, observation.TokenUsage.OutputTokens)
 	writeObservationSampleInt(hasher, observation.TokenUsage.TotalTokens)
@@ -186,6 +187,12 @@ func writeObservationSampleHash(hasher hash.Hash64, observation Observation) {
 	writeObservationSampleString(hasher, observation.ApprovalReason)
 	writeObservationSampleString(hasher, string(observation.ErrorCategory))
 	writeObservationSampleBool(hasher, observation.Failed)
+}
+
+func writeObservationSampleToolLifecycleTiming(hasher hash.Hash64, timing ToolLifecycleTiming) {
+	writeObservationSampleInt64(hasher, timing.Validation.Nanoseconds())
+	writeObservationSampleInt64(hasher, timing.Approval.Nanoseconds())
+	writeObservationSampleInt64(hasher, timing.Execution.Nanoseconds())
 }
 
 func writeObservationSampleStreamTelemetry(hasher hash.Hash64, telemetry StreamTelemetry) {

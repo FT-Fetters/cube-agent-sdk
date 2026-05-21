@@ -476,6 +476,14 @@ observer := agent.ObserverFunc(func(ctx context.Context, observation agent.Obser
 		observation.Round,
 		observation.Failed,
 	)
+	if observation.Type == agent.EventAfterTool {
+		timing := observation.ToolTiming
+		log.Printf("tool_timing validation=%s approval=%s execution=%s",
+			timing.Validation,
+			timing.Approval,
+			timing.Execution,
+		)
+	}
 })
 
 bot, err := agent.New(cfg, model,
@@ -544,8 +552,9 @@ decisions.
 
 Events and observations carry audit fields such as event type, agent ID,
 run ID, subagent ID, request ID, parent request ID, round, duration, estimated
-tokens, stream telemetry, tool name, tool risk, tool schema hash, approval
-result, skill name, safe tool result metadata, and error category.
+tokens, stream telemetry, tool name, tool risk, tool schema hash, tool lifecycle
+timing, approval result, skill name, safe tool result metadata, and error
+category.
 `ParentRequestID` links tool and
 approval events to the model request that caused them, and links follow-up
 model requests within the same run. Pass
@@ -559,6 +568,9 @@ After-tool observations include `ToolResultMetadata` with result content byte
 size, sorted result metadata key names, and MCP `mcpIsError` status when
 present. It does not include result content, metadata values, structured MCP
 content values, tool arguments, raw errors, or secrets.
+After-tool observations also include `ToolTiming` with validation, approval, and
+execution duration segments. Segment durations that were not reached stay zero,
+and `Duration` remains the total tool lifecycle duration.
 For streaming model calls, final `EventAfterModel` records use `Duration` for
 total stream duration and `StreamTelemetry` for time to first token, delta
 count, streamed delta bytes, and throughput. Streams that fail before the first
@@ -569,12 +581,14 @@ and `EventStreamError` observations without emitting per-delta observations
 after the first delta.
 `SlogObserver` always logs `event` and `failed`, and omits other zero-value
 attributes. Duration is emitted as `duration_ms`; token usage, stream telemetry,
-tool metadata, approval metadata, and provider diagnostics are emitted as
-structured groups.
+tool metadata, `tool.timing`, approval metadata, and provider diagnostics are
+emitted as structured groups.
 `MetricsObserver` emits event and failure counters, plus duration recordings for
 positive durations, using only low-cardinality labels derived from sanitized
-observations. It does not add `ToolSchemaHash`, tool result metadata keys, or
-MCP result status as labels by default.
+observations. Positive tool lifecycle segments are recorded as
+`agent_tool_lifecycle_duration` with a low-cardinality `tool_phase` label and
+without `tool_name`. It does not add `ToolSchemaHash`, tool result metadata
+keys, or MCP result status as labels by default.
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.
 Nil child observers in a composed observer are ignored, and observer panics are
