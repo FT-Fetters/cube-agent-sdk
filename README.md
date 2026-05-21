@@ -71,6 +71,13 @@ The `Agent` owns prompt assembly, message history, active skills, tool
 descriptors, approval checks, lifecycle hooks, observer notifications,
 compaction, MCP server metadata, and subagent registries.
 
+## Full Documentation
+
+Complete SDK documentation is maintained under `docs/sdk`:
+
+- [English](docs/sdk/en/README.md)
+- [中文](docs/sdk/zh/README.md)
+
 ## Examples
 
 Local examples are under `examples/` and avoid real credentials or external
