@@ -20,6 +20,9 @@ type StreamModel interface {
 `ModelRequest` contains the assembled system prompt, conversation messages,
 tool descriptors, MCP server metadata, and active skills. `ModelResponse`
 contains either a final assistant message or tool calls for the agent to run.
+Custom models can also set `ModelResponse.Usage` with `TokenUsage` values for
+input, output, and total tokens when exact model usage is available. The zero
+value means usage was not reported.
 
 ## Model Factory
 
@@ -111,6 +114,20 @@ type retryingModel struct {
 func (m retryingModel) Generate(ctx context.Context, request agent.ModelRequest) (agent.ModelResponse, error) {
 	return m.next.Generate(ctx, request)
 }
+```
+
+Set `ModelResponse.Usage` when your model implementation already has exact
+provider token counts:
+
+```go
+return agent.ModelResponse{
+	Message: agent.Message{Role: agent.RoleAssistant, Content: "done"},
+	Usage: agent.TokenUsage{
+		InputTokens:  120,
+		OutputTokens: 34,
+		TotalTokens:  154,
+	},
+}, nil
 ```
 
 Keep provider secrets and raw provider errors out of user-facing logs. Use a

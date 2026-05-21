@@ -18,7 +18,9 @@ type StreamModel interface {
 
 `ModelRequest` 包含组装后的 system prompt、会话消息、工具描述、MCP server
 元数据和 active skills。`ModelResponse` 包含最终 assistant 消息，或要求
-agent 执行的 tool calls。
+agent 执行的 tool calls。自定义模型在已经拥有精确模型用量时，也可以设置
+`ModelResponse.Usage`，使用 `TokenUsage` 表示 input、output 和 total tokens。
+零值表示未报告 usage。
 
 ## 模型工厂
 
@@ -112,6 +114,20 @@ type retryingModel struct {
 func (m retryingModel) Generate(ctx context.Context, request agent.ModelRequest) (agent.ModelResponse, error) {
 	return m.next.Generate(ctx, request)
 }
+```
+
+当模型实现已经拿到 provider 的精确 token 计数时，可以设置
+`ModelResponse.Usage`：
+
+```go
+return agent.ModelResponse{
+	Message: agent.Message{Role: agent.RoleAssistant, Content: "done"},
+	Usage: agent.TokenUsage{
+		InputTokens:  120,
+		OutputTokens: 34,
+		TotalTokens:  154,
+	},
+}, nil
 ```
 
 不要把 provider secret 和原始 provider 错误写入面向用户的日志。需要 timeout、

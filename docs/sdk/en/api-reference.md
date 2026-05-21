@@ -25,6 +25,7 @@ method-level details while keeping this page as a navigation aid.
 - `StreamModel`
 - `ModelRequest`
 - `ModelResponse`
+- `TokenUsage`
 - `StreamEvent`
 - `StreamEventType`
 - `StreamEventDelta`, `StreamEventDone`, `StreamEventError`

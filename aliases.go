@@ -34,6 +34,7 @@ const (
 
 type StreamEvent = core.StreamEvent
 type ModelRequest = core.ModelRequest
+type TokenUsage = core.TokenUsage
 type ModelResponse = core.ModelResponse
 type Config = core.Config
 

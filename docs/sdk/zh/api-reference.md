@@ -25,6 +25,7 @@
 - `StreamModel`
 - `ModelRequest`
 - `ModelResponse`
+- `TokenUsage`
 - `StreamEvent`
 - `StreamEventType`
 - `StreamEventDelta`、`StreamEventDone`、`StreamEventError`

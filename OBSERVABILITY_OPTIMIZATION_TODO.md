@@ -25,7 +25,7 @@
 - [x] **3. Support trace metadata from context.**
   Allow applications to put external trace metadata in `context.Context` and have the SDK surface safe correlation metadata in observations without depending on a tracing library.
 
-- [ ] **4. Add model usage to responses.**
+- [x] **4. Add model usage to responses.**
   Extend `ModelResponse` with usage fields for input, output, and total tokens while preserving estimated tokens as a fallback.
 
 - [ ] **5. Parse provider token usage.**
