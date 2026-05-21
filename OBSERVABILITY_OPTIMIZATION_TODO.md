@@ -19,7 +19,7 @@
 - [x] **1. Add run-level correlation IDs.**
   Add a `RunID` concept so all events emitted during one `Run` or `RunStream` can be correlated across model calls, tool calls, approvals, compaction, skill activation, and subagent messages.
 
-- [ ] **2. Add parent correlation for nested events.**
+- [x] **2. Add parent correlation for nested events.**
   Add a parent request or run correlation field to observations so a model call, its tool calls, and follow-up model calls can be reconstructed in logs and traces.
 
 - [ ] **3. Support trace metadata from context.**

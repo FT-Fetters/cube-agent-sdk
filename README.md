@@ -469,9 +469,10 @@ hook := func(ctx context.Context, event agent.Event) error {
 }
 
 observer := agent.ObserverFunc(func(ctx context.Context, observation agent.Observation) {
-	log.Printf("type=%s request=%s round=%d failed=%v",
+	log.Printf("type=%s request=%s parent=%s round=%d failed=%v",
 		observation.Type,
 		observation.RequestID,
+		observation.ParentRequestID,
 		observation.Round,
 		observation.Failed,
 	)
@@ -484,8 +485,10 @@ bot, err := agent.New(cfg, model,
 ```
 
 Events and observations carry audit fields such as event type, agent ID,
-run ID, subagent ID, request ID, round, duration, estimated tokens, tool name,
-tool risk, approval result, skill name, and error category. Pass
+run ID, subagent ID, request ID, parent request ID, round, duration, estimated
+tokens, tool name, tool risk, approval result, skill name, and error category.
+`ParentRequestID` links tool and approval events to the model request that
+caused them, and links follow-up model requests within the same run. Pass
 `agent.WithRunID("trace-123")` to correlate SDK telemetry with an application
 trace for one `Run` or `RunStream`; otherwise the SDK generates a run ID.
 Observations intentionally omit message content, tool arguments, tool results,
@@ -527,8 +530,8 @@ if err != nil {
 _ = reply
 ```
 
-`AgentError` carries category, operation, agent ID, request ID, tool name,
-subagent ID, round, and the wrapped cause.
+`AgentError` carries category, operation, agent ID, request ID, parent request
+ID, tool name, subagent ID, round, and the wrapped cause.
 
 ## Skills
 

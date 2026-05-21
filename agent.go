@@ -317,19 +317,22 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 			return Message{}, err
 		}
 	}
-	if err := a.maybeCompact(ctx, 1); err != nil {
+	if err := a.maybeCompact(ctx, 1, ""); err != nil {
 		return Message{}, err
 	}
 
 	maxRounds := a.maxToolRounds()
+	var previousModelRequestID string
 	for round := 0; ; round++ {
 		roundNumber := round + 1
 		request := a.buildModelRequest(activeSkills)
 		requestID := a.nextRequestID()
+		parentRequestID := previousModelRequestID
 		estimatedTokens := a.estimatedTokens(request.Messages)
 		if err := a.emit(ctx, Event{
 			Type:            EventBeforeModel,
 			RequestID:       requestID,
+			ParentRequestID: parentRequestID,
 			Round:           roundNumber,
 			EstimatedTokens: estimatedTokens,
 		}); err != nil {
@@ -342,10 +345,12 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 			wrapped := agentError(ErrorCategoryModel, "model.generate", err)
 			wrapped.AgentID = request.AgentID
 			wrapped.RequestID = requestID
+			wrapped.ParentRequestID = parentRequestID
 			wrapped.Round = roundNumber
 			if emitErr := a.emit(ctx, Event{
 				Type:            EventAfterModel,
 				RequestID:       requestID,
+				ParentRequestID: parentRequestID,
 				Round:           roundNumber,
 				Duration:        duration,
 				EstimatedTokens: estimatedTokens,
@@ -358,6 +363,7 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 		if err := a.emit(ctx, Event{
 			Type:            EventAfterModel,
 			RequestID:       requestID,
+			ParentRequestID: parentRequestID,
 			Round:           roundNumber,
 			Duration:        duration,
 			EstimatedTokens: estimatedTokens,
@@ -379,6 +385,7 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 			wrapped.AgentID = request.AgentID
 			wrapped.RunID = runIDFromContext(ctx)
 			wrapped.RequestID = requestID
+			wrapped.ParentRequestID = parentRequestID
 			wrapped.Round = roundNumber
 			return Message{}, wrapped
 		}
@@ -390,7 +397,7 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 		a.appendMessage(assistantMessage)
 
 		for _, call := range response.ToolCalls {
-			result, err := a.executeTool(ctx, call, roundNumber)
+			result, err := a.executeTool(ctx, call, roundNumber, requestID)
 			if err != nil {
 				return Message{}, err
 			}
@@ -402,9 +409,10 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 				Metadata:   result.Metadata,
 			})
 		}
-		if err := a.maybeCompact(ctx, roundNumber); err != nil {
+		if err := a.maybeCompact(ctx, roundNumber, requestID); err != nil {
 			return Message{}, err
 		}
+		previousModelRequestID = requestID
 	}
 }
 
@@ -443,7 +451,7 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 			return nil, err
 		}
 	}
-	if err := a.maybeCompact(ctx, 1); err != nil {
+	if err := a.maybeCompact(ctx, 1, ""); err != nil {
 		return nil, err
 	}
 
@@ -860,6 +868,16 @@ func setAgentErrorRunID(err error, runID string) {
 	}
 }
 
+func setAgentErrorParentRequestID(err error, parentRequestID string) {
+	if err == nil || parentRequestID == "" {
+		return
+	}
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) && agentErr.ParentRequestID == "" {
+		agentErr.ParentRequestID = parentRequestID
+	}
+}
+
 func (a *Agent) estimatedTokens(messages []Message) int {
 	a.mu.Lock()
 	counter := a.tokenCount
@@ -880,6 +898,7 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 		event.ErrorCategory = classifyError(event.Error)
 	}
 	setAgentErrorRunID(event.Error, event.RunID)
+	setAgentErrorParentRequestID(event.Error, event.ParentRequestID)
 
 	notifyObserver(ctx, observer, event)
 
@@ -893,6 +912,7 @@ func (a *Agent) emit(ctx context.Context, event Event) error {
 			wrapped.AgentID = event.AgentID
 			wrapped.RunID = event.RunID
 			wrapped.RequestID = event.RequestID
+			wrapped.ParentRequestID = event.ParentRequestID
 			wrapped.ToolName = event.ToolName
 			wrapped.SubagentID = event.SubagentID
 			wrapped.Round = event.Round

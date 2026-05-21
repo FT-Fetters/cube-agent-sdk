@@ -355,15 +355,17 @@ const (
 // AgentError adds stable SDK context around an underlying error. Unwrap keeps
 // existing sentinel checks such as errors.Is(err, ErrApprovalDenied) working.
 type AgentError struct {
-	Category   ErrorCategory
-	Operation  string
-	AgentID    string
-	RunID      string
-	RequestID  string
-	ToolName   string
-	SubagentID string
-	Round      int
-	Cause      error
+	Category  ErrorCategory
+	Operation string
+	AgentID   string
+	RunID     string
+	RequestID string
+	// ParentRequestID links nested failures to the request that caused them.
+	ParentRequestID string
+	ToolName        string
+	SubagentID      string
+	Round           int
+	Cause           error
 }
 
 func (e *AgentError) Error() string {
@@ -412,14 +414,16 @@ const (
 
 // Event carries lifecycle data to hooks.
 type Event struct {
-	Type            EventType
-	AgentID         string
-	RunID           string
-	SubagentID      string
-	ToolName        string
-	ToolRisk        ToolRisk
-	SkillName       string
-	RequestID       string
+	Type       EventType
+	AgentID    string
+	RunID      string
+	SubagentID string
+	ToolName   string
+	ToolRisk   ToolRisk
+	SkillName  string
+	RequestID  string
+	// ParentRequestID links nested lifecycle events to the request that caused them.
+	ParentRequestID string
 	Round           int
 	Duration        time.Duration
 	EstimatedTokens int
@@ -457,14 +461,16 @@ func (NoopObserver) Observe(context.Context, Observation) {}
 // Observation is a safe telemetry view of an Event. It intentionally omits
 // message content, tool arguments, tool results, raw errors, and MCP settings.
 type Observation struct {
-	Type            EventType
-	AgentID         string
-	RunID           string
-	SubagentID      string
-	ToolName        string
-	ToolRisk        ToolRisk
-	SkillName       string
-	RequestID       string
+	Type       EventType
+	AgentID    string
+	RunID      string
+	SubagentID string
+	ToolName   string
+	ToolRisk   ToolRisk
+	SkillName  string
+	RequestID  string
+	// ParentRequestID links nested telemetry records to the request that caused them.
+	ParentRequestID string
 	Round           int
 	Duration        time.Duration
 	EstimatedTokens int
@@ -485,6 +491,7 @@ func ObservationFromEvent(event Event) Observation {
 		ToolRisk:        event.ToolRisk,
 		SkillName:       event.SkillName,
 		RequestID:       event.RequestID,
+		ParentRequestID: event.ParentRequestID,
 		Round:           event.Round,
 		Duration:        event.Duration,
 		EstimatedTokens: event.EstimatedTokens,

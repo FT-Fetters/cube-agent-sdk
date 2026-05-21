@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func (a *Agent) maybeCompact(ctx context.Context, round int) error {
+func (a *Agent) maybeCompact(ctx context.Context, round int, parentRequestID string) error {
 	a.mu.Lock()
 	config := a.config.Compact
 	if config.MaxTokens <= 0 {
@@ -40,6 +40,7 @@ func (a *Agent) maybeCompact(ctx context.Context, round int) error {
 	if err := a.emit(ctx, Event{
 		Type:            EventBeforeCompact,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		EstimatedTokens: total,
 	}); err != nil {
@@ -52,10 +53,12 @@ func (a *Agent) maybeCompact(ctx context.Context, round int) error {
 		wrapped := agentError(ErrorCategoryCompact, "compact.context", err)
 		wrapped.AgentID = a.agentID()
 		wrapped.RequestID = requestID
+		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
 		if emitErr := a.emit(ctx, Event{
 			Type:            EventAfterCompact,
 			RequestID:       requestID,
+			ParentRequestID: parentRequestID,
 			Round:           round,
 			Duration:        duration,
 			EstimatedTokens: total,
@@ -71,6 +74,7 @@ func (a *Agent) maybeCompact(ctx context.Context, round int) error {
 	return a.emit(ctx, Event{
 		Type:            EventAfterCompact,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		Duration:        duration,
 		EstimatedTokens: estimateMessagesTokens(counter, compacted),

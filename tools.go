@@ -13,7 +13,7 @@ var (
 	ErrToolNotFound          = errors.New("agent: tool not found")
 )
 
-func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (ToolResult, error) {
+func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, parentRequestID string) (ToolResult, error) {
 	requestID := a.nextRequestID()
 	started := time.Now()
 	estimatedTokens := a.estimatedToolCallTokens(call, ToolResult{})
@@ -29,8 +29,9 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		wrapped.AgentID = agentID
 		wrapped.ToolName = call.Name
 		wrapped.RequestID = requestID
+		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
-		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, wrapped)
 	}
 	risk := toolRisk(tool)
 
@@ -39,8 +40,9 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		wrapped.AgentID = agentID
 		wrapped.ToolName = call.Name
 		wrapped.RequestID = requestID
+		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
-		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, wrapped)
 	}
 
 	if err := a.emit(ctx, Event{
@@ -48,6 +50,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		EstimatedTokens: estimatedTokens,
 		ToolCall:        approvalEventToolCall(call),
@@ -66,12 +69,14 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		wrapped.AgentID = agentID
 		wrapped.ToolName = call.Name
 		wrapped.RequestID = requestID
+		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
 		if emitErr := a.emit(ctx, Event{
 			Type:            EventAfterApproval,
 			ToolName:        call.Name,
 			ToolRisk:        risk,
 			RequestID:       requestID,
+			ParentRequestID: parentRequestID,
 			Round:           round,
 			Duration:        eventDurationSince(approvalStarted),
 			EstimatedTokens: estimatedTokens,
@@ -82,7 +87,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		}); emitErr != nil {
 			return ToolResult{}, emitErr
 		}
-		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, wrapped)
 	}
 	decision = normalizeApprovalDecision(decision)
 	if !decision.Approved {
@@ -91,12 +96,14 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		wrapped.AgentID = agentID
 		wrapped.ToolName = call.Name
 		wrapped.RequestID = requestID
+		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
 		if emitErr := a.emit(ctx, Event{
 			Type:            EventAfterApproval,
 			ToolName:        call.Name,
 			ToolRisk:        risk,
 			RequestID:       requestID,
+			ParentRequestID: parentRequestID,
 			Round:           round,
 			Duration:        eventDurationSince(approvalStarted),
 			EstimatedTokens: estimatedTokens,
@@ -107,13 +114,14 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		}); emitErr != nil {
 			return ToolResult{}, emitErr
 		}
-		return a.failTool(ctx, call, requestID, round, started, estimatedTokens, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, wrapped)
 	}
 	if err := a.emit(ctx, Event{
 		Type:            EventAfterApproval,
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		Duration:        eventDurationSince(approvalStarted),
 		EstimatedTokens: estimatedTokens,
@@ -129,6 +137,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		EstimatedTokens: estimatedTokens,
 		ToolCall:        cloneToolCall(call),
@@ -152,6 +161,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		wrapped.AgentID = agentID
 		wrapped.ToolName = call.Name
 		wrapped.RequestID = requestID
+		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
 		wrappedErr = wrapped
 	}
@@ -161,6 +171,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		Duration:        eventDurationSince(started),
 		EstimatedTokens: afterTokens,
@@ -176,11 +187,12 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int) (Tool
 	return cloneToolResult(result), nil
 }
 
-func (a *Agent) failTool(ctx context.Context, call ToolCall, requestID string, round int, started time.Time, estimatedTokens int, err error) (ToolResult, error) {
+func (a *Agent) failTool(ctx context.Context, call ToolCall, requestID string, parentRequestID string, round int, started time.Time, estimatedTokens int, err error) (ToolResult, error) {
 	if emitErr := a.emit(ctx, Event{
 		Type:            EventAfterTool,
 		ToolName:        call.Name,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		Duration:        eventDurationSince(started),
 		EstimatedTokens: estimatedTokens,

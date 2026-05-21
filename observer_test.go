@@ -104,6 +104,9 @@ func TestObserverReceivesSanitizedLifecycleMetadata(t *testing.T) {
 	if beforeModel.RequestID == "" || beforeModel.RequestID != afterModel.RequestID || beforeModel.Round != 1 {
 		t.Fatalf("model observation request/round = %#v/%#v, want matching request and first round", beforeModel, afterModel)
 	}
+	if beforeModel.ParentRequestID != "" || afterModel.ParentRequestID != "" {
+		t.Fatalf("first model observation parent request IDs = %q/%q, want empty roots", beforeModel.ParentRequestID, afterModel.ParentRequestID)
+	}
 	if afterModel.Duration <= 0 || afterModel.EstimatedTokens <= 0 || afterModel.Failed {
 		t.Fatalf("after model observation = %#v, want duration, tokens, and success", afterModel)
 	}
@@ -112,10 +115,16 @@ func TestObserverReceivesSanitizedLifecycleMetadata(t *testing.T) {
 	if afterTool.ToolName != "echo" || afterTool.RequestID == "" || afterTool.Duration <= 0 || afterTool.EstimatedTokens <= 0 {
 		t.Fatalf("after tool observation = %#v, want safe tool metadata", afterTool)
 	}
+	if afterTool.ParentRequestID != beforeModel.RequestID {
+		t.Fatalf("after tool observation parent request ID = %q, want model request ID %q", afterTool.ParentRequestID, beforeModel.RequestID)
+	}
 
 	afterApproval := firstObservationOfType(t, observations, EventAfterApproval)
 	if afterApproval.ToolName != "echo" || afterApproval.RequestID == "" || afterApproval.Duration <= 0 || afterApproval.Failed {
 		t.Fatalf("after approval observation = %#v, want successful approval metadata", afterApproval)
+	}
+	if afterApproval.ParentRequestID != beforeModel.RequestID {
+		t.Fatalf("after approval observation parent request ID = %q, want model request ID %q", afterApproval.ParentRequestID, beforeModel.RequestID)
 	}
 
 	afterCompact := firstObservationOfType(t, observations, EventAfterCompact)

@@ -16,6 +16,7 @@ func TestAgentWrapsApprovalDeniedWithStructuredError(t *testing.T) {
 	model := &recordingModel{responses: []ModelResponse{
 		{ToolCalls: []ToolCall{{ID: "call-1", Name: "danger", Arguments: map[string]any{"path": "/"}}}},
 	}}
+	var events []Event
 	bot, err := New(Config{ID: "audit-agent", SystemPrompt: "base"}, model,
 		WithTools(ToolFunc{
 			ToolName:        "danger",
@@ -28,6 +29,10 @@ func TestAgentWrapsApprovalDeniedWithStructuredError(t *testing.T) {
 		WithApprovalPolicy(ApprovalFunc(func(context.Context, ApprovalRequest) (ApprovalDecision, error) {
 			return ApprovalDecision{Approved: false, Reason: "blocked"}, nil
 		})),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -49,6 +54,10 @@ func TestAgentWrapsApprovalDeniedWithStructuredError(t *testing.T) {
 	}
 	if agentErr.RequestID == "" {
 		t.Fatalf("agent error request ID = %q, want non-empty request ID", agentErr.RequestID)
+	}
+	beforeModel := firstEventOfType(t, events, EventBeforeModel)
+	if agentErr.ParentRequestID != beforeModel.RequestID {
+		t.Fatalf("agent error parent request ID = %q, want model request ID %q", agentErr.ParentRequestID, beforeModel.RequestID)
 	}
 }
 
@@ -108,6 +117,63 @@ func TestAgentLifecycleEventsCarryAuditFields(t *testing.T) {
 	}
 	if beforeTool.ToolName != "echo" || afterTool.ToolName != "echo" {
 		t.Fatalf("tool event names = %q/%q, want echo", beforeTool.ToolName, afterTool.ToolName)
+	}
+}
+
+func TestAgentLifecycleEventsCarryParentRequestIDs(t *testing.T) {
+	ctx := context.Background()
+	model := &recordingModel{responses: []ModelResponse{
+		{ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "hello"}}}},
+		{Message: Message{Role: RoleAssistant, Content: "done"}},
+	}}
+	var events []Event
+	bot, err := New(Config{ID: "parent-agent", SystemPrompt: "base"}, model,
+		WithTools(ToolFunc{
+			ToolName:        "echo",
+			ToolDescription: "Echo text",
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				return ToolResult{CallID: call.ID, Name: call.Name, Content: call.Arguments["text"].(string)}, nil
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := bot.Run(ctx, "use echo"); err != nil {
+		t.Fatal(err)
+	}
+
+	firstBeforeModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 1)
+	firstAfterModel := firstEventOfTypeAndRound(t, events, EventAfterModel, 1)
+	if firstBeforeModel.ParentRequestID != "" || firstAfterModel.ParentRequestID != "" {
+		t.Fatalf("first model parent request IDs = %q/%q, want empty roots", firstBeforeModel.ParentRequestID, firstAfterModel.ParentRequestID)
+	}
+	if firstBeforeModel.RequestID == "" || firstBeforeModel.RequestID != firstAfterModel.RequestID {
+		t.Fatalf("first model request IDs = %q/%q, want matching non-empty IDs", firstBeforeModel.RequestID, firstAfterModel.RequestID)
+	}
+
+	beforeApproval := firstEventOfTypeAndRound(t, events, EventBeforeApproval, 1)
+	afterApproval := firstEventOfTypeAndRound(t, events, EventAfterApproval, 1)
+	beforeTool := firstEventOfTypeAndRound(t, events, EventBeforeTool, 1)
+	afterTool := firstEventOfTypeAndRound(t, events, EventAfterTool, 1)
+	for _, event := range []Event{beforeApproval, afterApproval, beforeTool, afterTool} {
+		if event.ParentRequestID != firstBeforeModel.RequestID {
+			t.Fatalf("%s parent request ID = %q, want first model request ID %q", event.Type, event.ParentRequestID, firstBeforeModel.RequestID)
+		}
+	}
+
+	secondBeforeModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 2)
+	secondAfterModel := firstEventOfTypeAndRound(t, events, EventAfterModel, 2)
+	if secondBeforeModel.RequestID == "" || secondBeforeModel.RequestID != secondAfterModel.RequestID {
+		t.Fatalf("second model request IDs = %q/%q, want matching non-empty IDs", secondBeforeModel.RequestID, secondAfterModel.RequestID)
+	}
+	if secondBeforeModel.ParentRequestID != firstBeforeModel.RequestID || secondAfterModel.ParentRequestID != firstBeforeModel.RequestID {
+		t.Fatalf("second model parent request IDs = %q/%q, want first model request ID %q", secondBeforeModel.ParentRequestID, secondAfterModel.ParentRequestID, firstBeforeModel.RequestID)
 	}
 }
 
@@ -493,11 +559,66 @@ func TestAgentCompactEventsCarryDurationAndTokenAuditFields(t *testing.T) {
 	if beforeCompact.RequestID == "" || beforeCompact.RequestID != afterCompact.RequestID {
 		t.Fatalf("compact request IDs = %q/%q, want matching non-empty IDs", beforeCompact.RequestID, afterCompact.RequestID)
 	}
+	if beforeCompact.ParentRequestID != "" || afterCompact.ParentRequestID != "" {
+		t.Fatalf("initial compact parent request IDs = %q/%q, want empty roots", beforeCompact.ParentRequestID, afterCompact.ParentRequestID)
+	}
 	if beforeCompact.EstimatedTokens != 2 || afterCompact.EstimatedTokens != 1 {
 		t.Fatalf("compact estimated tokens = %d/%d, want before and after estimates", beforeCompact.EstimatedTokens, afterCompact.EstimatedTokens)
 	}
 	if afterCompact.Duration <= 0 || afterCompact.ErrorCategory != "" {
 		t.Fatalf("after compact duration/category = %s/%q, want positive duration and no category", afterCompact.Duration, afterCompact.ErrorCategory)
+	}
+}
+
+func TestAgentCompactionAfterToolCycleCarriesParentRequestID(t *testing.T) {
+	ctx := context.Background()
+	model := &recordingModel{responses: []ModelResponse{
+		{ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "hello"}}}},
+		{Message: Message{Role: RoleAssistant, Content: "done"}},
+	}}
+	compactor := &recordingCompactor{
+		result: []Message{{Role: RoleSystem, Content: "summary"}},
+	}
+	var events []Event
+	bot, err := New(Config{
+		ID:           "compact-parent-agent",
+		SystemPrompt: "base",
+		Compact: CompactConfig{
+			MaxTokens: 3,
+			Threshold: 1,
+		},
+	}, model,
+		WithCompactor(compactor),
+		WithTokenCounter(TokenCounterFunc(func(Message) int { return 1 })),
+		WithTools(ToolFunc{
+			ToolName:        "echo",
+			ToolDescription: "Echo text",
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				return ToolResult{CallID: call.ID, Name: call.Name, Content: call.Arguments["text"].(string)}, nil
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := bot.Run(ctx, "use echo"); err != nil {
+		t.Fatal(err)
+	}
+
+	firstModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 1)
+	beforeCompact := firstEventOfTypeAndRound(t, events, EventBeforeCompact, 1)
+	afterCompact := firstEventOfTypeAndRound(t, events, EventAfterCompact, 1)
+	if beforeCompact.ParentRequestID != firstModel.RequestID || afterCompact.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("post-tool compact parent request IDs = %q/%q, want first model request ID %q", beforeCompact.ParentRequestID, afterCompact.ParentRequestID, firstModel.RequestID)
+	}
+	secondModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 2)
+	if secondModel.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("follow-up model parent request ID = %q, want first model request ID %q", secondModel.ParentRequestID, firstModel.RequestID)
 	}
 }
 
@@ -1874,6 +1995,17 @@ func firstEventOfType(t *testing.T, events []Event, eventType EventType) Event {
 		}
 	}
 	t.Fatalf("events = %#v, want %s", events, eventType)
+	return Event{}
+}
+
+func firstEventOfTypeAndRound(t *testing.T, events []Event, eventType EventType, round int) Event {
+	t.Helper()
+	for _, event := range events {
+		if event.Type == eventType && event.Round == round {
+			return event
+		}
+	}
+	t.Fatalf("events = %#v, want %s in round %d", events, eventType, round)
 	return Event{}
 }
 
