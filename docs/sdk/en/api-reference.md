@@ -167,6 +167,9 @@ method-level details while keeping this page as a navigation aid.
 - `WithTraceContext`
 - `TraceContextFromContext`
 
+`Event` and `Observation` include `ToolSchemaHash` on tool and approval
+lifecycle records when the registered tool has a parameter schema.
+
 ## Errors
 
 - `AgentError`

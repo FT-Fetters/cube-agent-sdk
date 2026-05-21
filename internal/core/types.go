@@ -741,11 +741,14 @@ type Event struct {
 	SubagentID string
 	ToolName   string
 	ToolRisk   ToolRisk
-	SkillName  string
-	TraceID    string
-	SpanID     string
-	TraceState string
-	RequestID  string
+	// ToolSchemaHash identifies the registered tool parameter schema and
+	// descriptor metadata without exposing raw schema JSON or arguments.
+	ToolSchemaHash string
+	SkillName      string
+	TraceID        string
+	SpanID         string
+	TraceState     string
+	RequestID      string
 	// ParentRequestID links nested lifecycle events to the request that caused them.
 	ParentRequestID string
 	Round           int
@@ -810,11 +813,14 @@ type Observation struct {
 	SubagentID string
 	ToolName   string
 	ToolRisk   ToolRisk
-	SkillName  string
-	TraceID    string
-	SpanID     string
-	TraceState string
-	RequestID  string
+	// ToolSchemaHash identifies tool schema drift without exposing raw schema
+	// JSON, tool arguments, or tool results.
+	ToolSchemaHash string
+	SkillName      string
+	TraceID        string
+	SpanID         string
+	TraceState     string
+	RequestID      string
 	// ParentRequestID links nested telemetry records to the request that caused them.
 	ParentRequestID string
 	Round           int
@@ -843,6 +849,7 @@ func ObservationFromEvent(event Event) Observation {
 		SubagentID:            event.SubagentID,
 		ToolName:              event.ToolName,
 		ToolRisk:              event.ToolRisk,
+		ToolSchemaHash:        event.ToolSchemaHash,
 		SkillName:             event.SkillName,
 		TraceID:               event.TraceID,
 		SpanID:                event.SpanID,

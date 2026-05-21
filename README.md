@@ -544,11 +544,16 @@ decisions.
 
 Events and observations carry audit fields such as event type, agent ID,
 run ID, subagent ID, request ID, parent request ID, round, duration, estimated
-tokens, stream telemetry, tool name, tool risk, approval result, skill name, and
-error category. `ParentRequestID` links tool and approval events to the model
-request that caused them, and links follow-up model requests within the same run. Pass
+tokens, stream telemetry, tool name, tool risk, tool schema hash, approval
+result, skill name, and error category. `ParentRequestID` links tool and
+approval events to the model request that caused them, and links follow-up
+model requests within the same run. Pass
 `agent.WithRunID("trace-123")` to correlate SDK telemetry with an application
 trace for one `Run` or `RunStream`; otherwise the SDK generates a run ID.
+Tool and approval lifecycle records include `ToolSchemaHash` when the tool has
+a parameter schema. The hash is deterministic over the parameter schema and
+descriptor metadata, and does not include tool arguments, tool results, prompts,
+or raw schema JSON.
 For streaming model calls, final `EventAfterModel` records use `Duration` for
 total stream duration and `StreamTelemetry` for time to first token, delta
 count, streamed delta bytes, and throughput. Streams that fail before the first
@@ -563,7 +568,7 @@ tool metadata, approval metadata, and provider diagnostics are emitted as
 structured groups.
 `MetricsObserver` emits event and failure counters, plus duration recordings for
 positive durations, using only low-cardinality labels derived from sanitized
-observations.
+observations. It does not add `ToolSchemaHash` as a label by default.
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.
 Nil child observers in a composed observer are ignored, and observer panics are

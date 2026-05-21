@@ -11,7 +11,7 @@ func TestMetricsObserverEmitsCountersAndDurationWithSafeLabels(t *testing.T) {
 	sink := &recordingMetricSink{}
 	observer := NewMetricsObserver(MetricsObserverOptions{Sink: sink})
 
-	observer.Observe(context.Background(), Observation{
+	observation := observationWithToolSchemaHash(t, Observation{
 		Type:                  EventAfterTool,
 		AgentID:               "agent-1",
 		RunID:                 "run-1",
@@ -28,7 +28,9 @@ func TestMetricsObserverEmitsCountersAndDurationWithSafeLabels(t *testing.T) {
 		ErrorCategory:         ErrorCategoryTool,
 		ModelErrorSubcategory: ModelErrorSubcategoryRateLimited,
 		Failed:                true,
-	})
+	}, "sha256:metric-schema-hash")
+
+	observer.Observe(context.Background(), observation)
 
 	wantLabels := []MetricLabel{
 		{Name: "event", Value: string(EventAfterTool)},
@@ -140,17 +142,19 @@ func assertMetricLabelsOmitHighCardinalityFields(t *testing.T, calls []metricCal
 		"request_id":          {},
 		"parent_request_id":   {},
 		"provider_request_id": {},
+		"tool_schema_hash":    {},
 	}
 	disallowedValues := map[string]struct{}{
-		"agent-1":            {},
-		"run-1":              {},
-		"worker-1":           {},
-		"trace-1":            {},
-		"span-1":             {},
-		"vendor=state":       {},
-		"request-1":          {},
-		"parent-request-1":   {},
-		"provider-request-1": {},
+		"agent-1":                   {},
+		"run-1":                     {},
+		"worker-1":                  {},
+		"trace-1":                   {},
+		"span-1":                    {},
+		"vendor=state":              {},
+		"request-1":                 {},
+		"parent-request-1":          {},
+		"provider-request-1":        {},
+		"sha256:metric-schema-hash": {},
 	}
 	for _, call := range calls {
 		for _, label := range call.labels {

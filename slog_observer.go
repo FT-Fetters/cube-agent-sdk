@@ -152,6 +152,7 @@ func toolSlogAttrs(observation Observation) []slog.Attr {
 	var attrs []slog.Attr
 	attrs = appendSlogString(attrs, "name", observation.ToolName)
 	attrs = appendSlogString(attrs, "risk", string(observation.ToolRisk))
+	attrs = appendSlogString(attrs, "schema_hash", observation.ToolSchemaHash)
 	return attrs
 }
 

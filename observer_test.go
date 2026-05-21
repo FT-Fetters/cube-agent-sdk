@@ -138,6 +138,103 @@ func TestObserverReceivesSanitizedLifecycleMetadata(t *testing.T) {
 	}
 }
 
+func TestToolSchemaHashTelemetryIsDeterministicAcrossSchemaMapOrder(t *testing.T) {
+	ctx := context.Background()
+	const schemaSecret = "raw-schema-description"
+	var want string
+
+	for i := 0; i < 20; i++ {
+		order := []string{"account_id", "include_history", "limit", "region", "tier", "active"}
+		if i%2 == 1 {
+			order = []string{"active", "tier", "region", "limit", "include_history", "account_id"}
+		}
+		_, observations := runObservedSchemaTool(t, ctx, observedSchemaToolOptions{
+			propertyOrder: order,
+			argumentText:  "safe argument",
+			schemaText:    schemaSecret,
+		})
+
+		got := toolSchemaHashFromObservation(t, firstObservationOfType(t, observations, EventBeforeTool))
+		if got == "" {
+			t.Fatal("tool schema hash = empty, want deterministic hash")
+		}
+		if strings.Contains(got, schemaSecret) {
+			t.Fatalf("tool schema hash leaked raw schema text: %q", got)
+		}
+		if want == "" {
+			want = got
+			continue
+		}
+		if got != want {
+			t.Fatalf("tool schema hash = %q, want deterministic %q", got, want)
+		}
+	}
+}
+
+func TestToolLifecycleTelemetryCarriesSchemaHashWhenSchemaExists(t *testing.T) {
+	ctx := context.Background()
+	events, observations := runObservedSchemaTool(t, ctx, observedSchemaToolOptions{
+		propertyOrder: []string{"account_id", "include_history"},
+		argumentText:  "customer-123",
+		schemaText:    "schema description",
+	})
+
+	want := toolSchemaHashFromObservation(t, firstObservationOfType(t, observations, EventBeforeTool))
+	if want == "" {
+		t.Fatal("tool schema hash = empty, want hash on tool lifecycle telemetry")
+	}
+
+	for _, eventType := range toolLifecycleEventTypes() {
+		event := firstEventOfType(t, events, eventType)
+		if got := toolSchemaHashFromEvent(t, event); got != want {
+			t.Fatalf("%s event tool schema hash = %q, want %q", eventType, got, want)
+		}
+		observation := firstObservationOfType(t, observations, eventType)
+		if got := toolSchemaHashFromObservation(t, observation); got != want {
+			t.Fatalf("%s observation tool schema hash = %q, want %q", eventType, got, want)
+		}
+	}
+}
+
+func TestToolSchemaHashTelemetryIsEmptyWithoutSchema(t *testing.T) {
+	ctx := context.Background()
+	events, observations := runObservedSchemaTool(t, ctx, observedSchemaToolOptions{
+		argumentText: "customer-123",
+	})
+
+	for _, eventType := range toolLifecycleEventTypes() {
+		event := firstEventOfType(t, events, eventType)
+		if got := toolSchemaHashFromEvent(t, event); got != "" {
+			t.Fatalf("%s event tool schema hash = %q, want empty", eventType, got)
+		}
+		observation := firstObservationOfType(t, observations, eventType)
+		if got := toolSchemaHashFromObservation(t, observation); got != "" {
+			t.Fatalf("%s observation tool schema hash = %q, want empty", eventType, got)
+		}
+	}
+}
+
+func TestToolSchemaHashObservationDoesNotLeakArgumentsResultsOrRawSchema(t *testing.T) {
+	ctx := context.Background()
+	const (
+		argumentSecret = "argument-secret-value"
+		resultSecret   = "result-secret-value"
+		schemaSecret   = "raw-schema-secret-value"
+	)
+	_, observations := runObservedSchemaTool(t, ctx, observedSchemaToolOptions{
+		propertyOrder: []string{"account_id", "include_history"},
+		argumentText:  argumentSecret,
+		resultText:    resultSecret,
+		schemaText:    schemaSecret,
+	})
+
+	for _, observation := range observations {
+		assertObservationDoesNotContain(t, observation, argumentSecret)
+		assertObservationDoesNotContain(t, observation, resultSecret)
+		assertObservationDoesNotContain(t, observation, schemaSecret)
+	}
+}
+
 func TestObserverReceivesErrorCategoryWithoutInterruptingErrorPath(t *testing.T) {
 	ctx := context.Background()
 	recorder := &recordingObserver{}
@@ -318,4 +415,129 @@ func assertObservationDoesNotContain(t *testing.T, observation Observation, secr
 			t.Fatalf("observation leaked sensitive content in field %s", value.Type().Field(i).Name)
 		}
 	}
+}
+
+type observedSchemaToolOptions struct {
+	propertyOrder []string
+	argumentText  string
+	resultText    string
+	schemaText    string
+}
+
+func runObservedSchemaTool(t *testing.T, ctx context.Context, options observedSchemaToolOptions) ([]Event, []Observation) {
+	t.Helper()
+	recorder := &recordingObserver{}
+	var events []Event
+	schema := observedToolSchema(options.propertyOrder, options.schemaText)
+	resultText := options.resultText
+	if resultText == "" {
+		resultText = "tool result"
+	}
+	model := &recordingModel{responses: []ModelResponse{
+		{ToolCalls: []ToolCall{{
+			ID:   "call-1",
+			Name: "lookup_account",
+			Arguments: map[string]any{
+				"account_id":      options.argumentText,
+				"include_history": true,
+				"limit":           3,
+				"region":          "us",
+				"tier":            "pro",
+				"active":          true,
+			},
+		}}},
+		{Message: Message{Role: RoleAssistant, Content: "ok"}},
+	}}
+	bot, err := New(Config{ID: "tool-schema-hash-agent", SystemPrompt: "base"}, model,
+		WithObserver(recorder),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		WithTools(ToolFunc{
+			ToolName:        "lookup_account",
+			ToolDescription: "Lookup account",
+			Parameters:      schema,
+			ToolRisk:        ToolRiskRead,
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				return ToolResult{CallID: call.ID, Name: call.Name, Content: resultText}, nil
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := bot.Run(ctx, "lookup"); err != nil {
+		t.Fatal(err)
+	}
+	return events, recorder.Observations()
+}
+
+func observedToolSchema(propertyOrder []string, schemaText string) *ToolParametersSchema {
+	if len(propertyOrder) == 0 {
+		return nil
+	}
+	schema := &ToolParametersSchema{
+		Type:        SchemaTypeObject,
+		Description: schemaText,
+		Required:    []string{"account_id", "include_history"},
+		Properties:  make(map[string]ToolParametersSchema, len(propertyOrder)),
+	}
+	for _, name := range propertyOrder {
+		switch name {
+		case "account_id":
+			schema.Properties[name] = ToolParametersSchema{Type: SchemaTypeString, Description: schemaText}
+		case "include_history":
+			schema.Properties[name] = ToolParametersSchema{Type: SchemaTypeBoolean}
+		case "limit":
+			schema.Properties[name] = ToolParametersSchema{Type: SchemaTypeInteger}
+		case "active":
+			schema.Properties[name] = ToolParametersSchema{Type: SchemaTypeBoolean}
+		default:
+			schema.Properties[name] = ToolParametersSchema{Type: SchemaTypeString}
+		}
+	}
+	return schema
+}
+
+func toolLifecycleEventTypes() []EventType {
+	return []EventType{EventBeforeApproval, EventAfterApproval, EventBeforeTool, EventAfterTool}
+}
+
+func toolSchemaHashFromEvent(t *testing.T, event Event) string {
+	t.Helper()
+	return stringFieldByName(t, event, "ToolSchemaHash")
+}
+
+func toolSchemaHashFromObservation(t *testing.T, observation Observation) string {
+	t.Helper()
+	return stringFieldByName(t, observation, "ToolSchemaHash")
+}
+
+func observationWithToolSchemaHash(t *testing.T, observation Observation, hash string) Observation {
+	t.Helper()
+	value := reflect.ValueOf(&observation).Elem()
+	field := value.FieldByName("ToolSchemaHash")
+	if !field.IsValid() {
+		t.Fatal("Observation.ToolSchemaHash field is missing")
+	}
+	if field.Kind() != reflect.String || !field.CanSet() {
+		t.Fatalf("Observation.ToolSchemaHash = %s settable=%t, want settable string", field.Kind(), field.CanSet())
+	}
+	field.SetString(hash)
+	return observation
+}
+
+func stringFieldByName(t *testing.T, value any, name string) string {
+	t.Helper()
+	reflected := reflect.ValueOf(value)
+	field := reflected.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("%T.%s field is missing", value, name)
+	}
+	if field.Kind() != reflect.String {
+		t.Fatalf("%T.%s kind = %s, want string", value, name, field.Kind())
+	}
+	return field.String()
 }

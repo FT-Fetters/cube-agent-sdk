@@ -134,10 +134,15 @@ only emitted when the application installs `MetricsObserver` with a sink.
 Events and observations carry audit fields such as event type, agent ID,
 run ID, trace ID, span ID, trace state, subagent ID, request ID, parent request
 ID, round, duration, estimated tokens, real token usage, streaming telemetry,
-tool name, tool risk, approval result, skill name, error category, model error
-subcategory, and safe provider diagnostics for model failures. `ParentRequestID`
-links tool and approval events to the model request that caused them, and links
-follow-up model requests within the same run.
+tool name, tool risk, tool schema hash, approval result, skill name, error
+category, model error subcategory, and safe provider diagnostics for model
+failures. `ParentRequestID` links tool and approval events to the model request
+that caused them, and links follow-up model requests within the same run.
+
+Tool and approval lifecycle records include `ToolSchemaHash` when the tool has
+a parameter schema. The hash is deterministic over the parameter schema and
+descriptor metadata, and does not include tool arguments, tool results, prompts,
+or raw schema JSON. It stays empty for tools without parameter schemas.
 
 `EstimatedTokens` is the SDK's request-side estimate and stays populated even
 when the provider does not report usage. `TokenUsage` carries real input,
@@ -172,5 +177,5 @@ increments `agent_observation_failures_total` for failed observations, and
 records positive durations as `agent_observation_duration`. Metric labels are
 limited to `event`, `failed`, `error_category`, `model_error_subcategory`,
 `tool_name`, `tool_risk`, `provider`, and `http_status` when present. Run IDs,
-request IDs, trace IDs, and provider request IDs are intentionally omitted from
-metric labels by default.
+request IDs, trace IDs, provider request IDs, and `ToolSchemaHash` are
+intentionally omitted from metric labels by default.

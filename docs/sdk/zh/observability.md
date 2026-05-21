@@ -128,8 +128,13 @@ nil 子 observer 会被忽略。Observer panic 会被 recover 并忽略，包括
 事件和 observations 携带 event type、agent ID、run ID、trace ID、span ID、
 trace state、subagent ID、request ID、parent request ID、round、duration、
 estimated tokens、真实 token usage、streaming telemetry、tool name、tool risk、
-approval result、skill name、error category、model error subcategory，以及模型失败时的安全
-provider diagnostics 等审计字段。`ParentRequestID` 会把工具和审批事件关联到触发它们的模型请求，也会关联同一 run 内的后续模型请求。
+tool schema hash、approval result、skill name、error category、model error subcategory，
+以及模型失败时的安全 provider diagnostics 等审计字段。`ParentRequestID`
+会把工具和审批事件关联到触发它们的模型请求，也会关联同一 run 内的后续模型请求。
+
+当工具提供参数 schema 时，工具和审批生命周期记录会包含 `ToolSchemaHash`。该 hash
+会基于参数 schema 和描述符元数据确定性生成，不包含工具参数、工具结果、prompt 或原始
+schema JSON。没有参数 schema 的工具会保持该字段为空。
 
 `EstimatedTokens` 是 SDK 在请求侧估算的 token 数，即使 provider 没有返回 usage
 也会继续填充。`TokenUsage` 则携带非 streaming `EventAfterModel` 及其 observation
@@ -158,5 +163,5 @@ provider diagnostics 会作为结构化 group 输出。
 observation 递增 `agent_observation_failures_total`，并把正数 duration 记录到
 `agent_observation_duration`。指标标签限定为 `event`、`failed`、
 `error_category`、`model_error_subcategory`、`tool_name`、`tool_risk`、
-`provider` 和存在时的 `http_status`。默认不会把 run ID、request ID、trace ID
-或 provider request ID 放入指标标签。
+`provider` 和存在时的 `http_status`。默认不会把 run ID、request ID、trace ID、
+provider request ID 或 `ToolSchemaHash` 放入指标标签。

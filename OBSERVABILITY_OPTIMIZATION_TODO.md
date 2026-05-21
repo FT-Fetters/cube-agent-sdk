@@ -64,7 +64,7 @@
 - [x] **16. Align streaming errors with non-streaming observability.**
   Ensure streaming errors consistently include run correlation, request IDs, duration, usage where available, and error category.
 
-- [ ] **17. Add tool schema version or hash telemetry.**
+- [x] **17. Add tool schema version or hash telemetry.**
   Add a safe schema version or hash for tool observations so schema drift can be diagnosed without exposing arguments.
 
 - [ ] **18. Add safe tool result metadata.**

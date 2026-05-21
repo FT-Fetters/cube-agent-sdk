@@ -167,6 +167,9 @@
 - `WithTraceContext`
 - `TraceContextFromContext`
 
+当注册工具提供参数 schema 时，工具和审批生命周期的 `Event` 与 `Observation`
+会包含 `ToolSchemaHash`。
+
 ## 错误
 
 - `AgentError`

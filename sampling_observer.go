@@ -166,6 +166,7 @@ func writeObservationSampleHash(hasher hash.Hash64, observation Observation) {
 	writeObservationSampleString(hasher, observation.SubagentID)
 	writeObservationSampleString(hasher, observation.ToolName)
 	writeObservationSampleString(hasher, string(observation.ToolRisk))
+	writeObservationSampleString(hasher, observation.ToolSchemaHash)
 	writeObservationSampleString(hasher, observation.SkillName)
 	writeObservationSampleString(hasher, observation.TraceID)
 	writeObservationSampleString(hasher, observation.SpanID)

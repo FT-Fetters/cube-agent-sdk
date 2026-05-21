@@ -22,7 +22,7 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 		Message: "sdk observation",
 	})
 
-	observer.Observe(context.Background(), Observation{
+	observation := observationWithToolSchemaHash(t, Observation{
 		Type:            EventAfterTool,
 		AgentID:         "agent-1",
 		RunID:           "run-1",
@@ -49,7 +49,9 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 		ApprovalReason:        "allowed by policy",
 		ErrorCategory:         ErrorCategoryTool,
 		Failed:                true,
-	})
+	}, "sha256:slog-schema-hash")
+
+	observer.Observe(context.Background(), observation)
 
 	record := decodeSlogRecord(t, buf.String())
 	assertSlogField(t, record, "level", "WARN")
@@ -79,6 +81,7 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 	tool := assertSlogGroup(t, record, "tool")
 	assertSlogField(t, tool, "name", "lookup")
 	assertSlogField(t, tool, "risk", string(ToolRiskRead))
+	assertSlogField(t, tool, "schema_hash", "sha256:slog-schema-hash")
 
 	approval := assertSlogGroup(t, record, "approval")
 	assertSlogField(t, approval, "approved", true)
