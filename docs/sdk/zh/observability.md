@@ -55,7 +55,21 @@ observer := agent.ObserverFunc(func(ctx context.Context, observation agent.Obser
 bot, err := agent.New(cfg, model, agent.WithObserver(observer))
 ```
 
+如需使用标准库结构化日志，可以显式配置 `SlogObserver`：
+
+```go
+slogObserver := agent.NewSlogObserver(agent.SlogObserverOptions{
+	Logger:  slog.Default(),
+	Level:   slog.LevelInfo,
+	Message: "agent observation",
+})
+
+bot, err := agent.New(cfg, model, agent.WithObserver(slogObserver))
+```
+
 Observer panic 会被 recover 并忽略。遥测是 best-effort，不能改变 agent 行为。
+默认 observer 仍是 `NoopObserver`；只有应用通过 `WithObserver` 挂载
+`SlogObserver` 时才会输出 slog 日志。
 
 ## 脱敏元数据
 
@@ -72,3 +86,7 @@ usage，`TokenUsage` 字段保持零值。
 
 Observations 有意省略消息内容、工具参数、工具结果、原始错误、API keys、带
 query string 的完整 provider URL 和 MCP 环境变量。
+
+`SlogObserver` 每条记录都会输出 `event` 和 `failed`。其他零值字段会被省略；
+duration 以 `duration_ms` 输出；token usage、工具元数据、审批元数据和 provider
+diagnostics 会作为结构化 group 输出。

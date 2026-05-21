@@ -484,6 +484,18 @@ bot, err := agent.New(cfg, model,
 )
 ```
 
+For standard-library structured logs, opt in with `NewSlogObserver`:
+
+```go
+slogObserver := agent.NewSlogObserver(agent.SlogObserverOptions{
+	Logger: slog.Default(),
+})
+
+bot, err := agent.New(cfg, model,
+	agent.WithObserver(slogObserver),
+)
+```
+
 Events and observations carry audit fields such as event type, agent ID,
 run ID, subagent ID, request ID, parent request ID, round, duration, estimated
 tokens, tool name, tool risk, approval result, skill name, and error category.
@@ -491,6 +503,9 @@ tokens, tool name, tool risk, approval result, skill name, and error category.
 caused them, and links follow-up model requests within the same run. Pass
 `agent.WithRunID("trace-123")` to correlate SDK telemetry with an application
 trace for one `Run` or `RunStream`; otherwise the SDK generates a run ID.
+`SlogObserver` always logs `event` and `failed`, and omits other zero-value
+attributes. Duration is emitted as `duration_ms`; token usage, tool metadata,
+approval metadata, and provider diagnostics are emitted as structured groups.
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, and MCP environment values.
 

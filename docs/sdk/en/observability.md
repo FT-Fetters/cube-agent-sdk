@@ -57,8 +57,21 @@ observer := agent.ObserverFunc(func(ctx context.Context, observation agent.Obser
 bot, err := agent.New(cfg, model, agent.WithObserver(observer))
 ```
 
+For standard-library structured logs, configure `SlogObserver` explicitly:
+
+```go
+slogObserver := agent.NewSlogObserver(agent.SlogObserverOptions{
+	Logger:  slog.Default(),
+	Level:   slog.LevelInfo,
+	Message: "agent observation",
+})
+
+bot, err := agent.New(cfg, model, agent.WithObserver(slogObserver))
+```
+
 Observer panics are recovered and ignored. Telemetry is best-effort and must not
-change agent behavior.
+change agent behavior. `NoopObserver` remains the default; slog output is only
+emitted when the application installs `SlogObserver` with `WithObserver`.
 
 ## Sanitized Metadata
 
@@ -79,3 +92,7 @@ output, and total token counts from `ModelResponse.Usage` on non-streaming
 Observations intentionally omit message content, tool arguments, tool results,
 raw errors, API keys, full provider URLs with query strings, and MCP
 environment values.
+
+`SlogObserver` logs `event` and `failed` on every record. It omits other
+zero-value fields, emits duration as `duration_ms`, and groups token usage, tool
+metadata, approval metadata, and provider diagnostics as structured attributes.

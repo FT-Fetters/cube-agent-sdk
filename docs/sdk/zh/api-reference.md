@@ -136,6 +136,9 @@
 - `Observer`
 - `ObserverFunc`
 - `NoopObserver`
+- `SlogObserver`
+- `SlogObserverOptions`
+- `NewSlogObserver`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`

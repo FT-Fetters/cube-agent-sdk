@@ -43,7 +43,7 @@
 - [x] **9. Standardize provider error classification.**
   Add model error subcategories such as timeout, rate limited, authentication, server error, bad request, and decode error for logs and alert grouping.
 
-- [ ] **10. Add a standard-library slog observer.**
+- [x] **10. Add a standard-library slog observer.**
   Provide a `log/slog` observer that emits structured, sanitized lifecycle telemetry with no third-party dependencies.
 
 - [ ] **11. Add a lightweight metrics observer interface or example.**
