@@ -531,7 +531,10 @@ _ = reply
 ```
 
 `AgentError` carries category, operation, agent ID, request ID, parent request
-ID, tool name, subagent ID, round, and the wrapped cause.
+ID, tool name, subagent ID, round, safe provider diagnostics when available,
+and the wrapped cause. Provider diagnostics can include retry-after and
+rate-limit hints, but never request or response bodies, credentials, cookies, or
+full provider URLs.
 
 ## Skills
 

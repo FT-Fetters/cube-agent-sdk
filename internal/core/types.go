@@ -100,6 +100,11 @@ type ProviderDiagnostics struct {
 	HTTPStatus   int
 	EndpointHost string
 	RequestID    string
+	// RetryAfter and RateLimit fields are bounded diagnostic header hints.
+	RetryAfter         string
+	RateLimitLimit     string
+	RateLimitRemaining string
+	RateLimitReset     string
 }
 
 // IsZero reports whether diagnostics contain no usable metadata.
@@ -187,6 +192,10 @@ func normalizeProviderDiagnostics(diagnostics ProviderDiagnostics) ProviderDiagn
 	diagnostics.Provider = strings.TrimSpace(diagnostics.Provider)
 	diagnostics.EndpointHost = strings.TrimSpace(diagnostics.EndpointHost)
 	diagnostics.RequestID = strings.TrimSpace(diagnostics.RequestID)
+	diagnostics.RetryAfter = strings.TrimSpace(diagnostics.RetryAfter)
+	diagnostics.RateLimitLimit = strings.TrimSpace(diagnostics.RateLimitLimit)
+	diagnostics.RateLimitRemaining = strings.TrimSpace(diagnostics.RateLimitRemaining)
+	diagnostics.RateLimitReset = strings.TrimSpace(diagnostics.RateLimitReset)
 	if diagnostics.HTTPStatus < 100 || diagnostics.HTTPStatus > 999 {
 		diagnostics.HTTPStatus = 0
 	}

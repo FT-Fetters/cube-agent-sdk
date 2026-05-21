@@ -52,19 +52,22 @@ if errors.As(err, &agentErr) {
 
 Built-in model adapters attach safe provider diagnostics to HTTP, transport,
 and decode failures. Diagnostics may include provider name, HTTP status,
-endpoint host, and provider request ID. They do not include full URLs with query
-strings, request or response bodies, prompts, tool arguments, API keys,
-authorization headers, or raw provider error text.
+endpoint host, provider request ID, `RetryAfter`, `RateLimitLimit`,
+`RateLimitRemaining`, and `RateLimitReset`. They do not include full URLs with
+query strings, request or response bodies, prompts, tool arguments, API keys,
+authorization headers, cookies, `Set-Cookie`, or raw provider error text.
 
 ```go
 var agentErr *agent.AgentError
 if errors.As(err, &agentErr) {
 	diag := agentErr.ProviderDiagnostics
-	log.Printf("provider=%s status=%d host=%s provider_request=%s",
+	log.Printf("provider=%s status=%d host=%s provider_request=%s retry_after=%s rate_remaining=%s",
 		diag.Provider,
 		diag.HTTPStatus,
 		diag.EndpointHost,
 		diag.RequestID,
+		diag.RetryAfter,
+		diag.RateLimitRemaining,
 	)
 }
 ```

@@ -37,7 +37,7 @@
 - [x] **7. Add safe provider diagnostics to model errors.**
   Include safe provider diagnostics such as provider name, HTTP status, endpoint host, and provider request ID without exposing sensitive request or response content.
 
-- [ ] **8. Capture common diagnostic response headers.**
+- [x] **8. Capture common diagnostic response headers.**
   Capture safe response headers such as request IDs, rate-limit hints, and retry-after values for provider diagnostics.
 
 - [ ] **9. Standardize provider error classification.**

@@ -25,6 +25,10 @@ func FromResponse(provider string, endpoint string, response *http.Response) cor
 	}
 	diagnostics.HTTPStatus = response.StatusCode
 	diagnostics.RequestID = providerRequestID(response.Header)
+	diagnostics.RetryAfter = diagnosticHeader(response.Header, "Retry-After")
+	diagnostics.RateLimitLimit = diagnosticHeader(response.Header, "RateLimit-Limit", "X-RateLimit-Limit")
+	diagnostics.RateLimitRemaining = diagnosticHeader(response.Header, "RateLimit-Remaining", "X-RateLimit-Remaining")
+	diagnostics.RateLimitReset = diagnosticHeader(response.Header, "RateLimit-Reset", "X-RateLimit-Reset")
 	return diagnostics
 }
 
@@ -38,6 +42,15 @@ func endpointHost(endpoint string) string {
 
 func providerRequestID(header http.Header) string {
 	for _, name := range []string{"X-Request-Id", "Request-Id"} {
+		if value := strings.TrimSpace(header.Get(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func diagnosticHeader(header http.Header, names ...string) string {
+	for _, name := range names {
 		if value := strings.TrimSpace(header.Get(name)); value != "" {
 			return value
 		}
