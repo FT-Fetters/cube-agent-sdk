@@ -39,6 +39,8 @@ release. Dates use ISO 8601 format.
 - Safer approval policy helpers for deny-by-default, allowlists, and tool risk
   levels.
 - Runnable local examples and README coverage for core SDK workflows.
+- Provider capability declarations, selection helpers, pre-run mismatch errors,
+  and built-in provider capability matrix documentation.
 - CI workflow for tests, race tests, and vet.
 
 ### Documentation

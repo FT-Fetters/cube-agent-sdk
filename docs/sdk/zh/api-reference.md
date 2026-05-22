@@ -30,6 +30,17 @@
 - `StreamEvent`
 - `StreamEventType`
 - `StreamEventDelta`、`StreamEventDone`、`StreamEventError`
+- `ModelCapability`
+- `ModelCapabilityTools`、`ModelCapabilityStreaming`、`ModelCapabilityJSONMode`、
+  `ModelCapabilityStructuredOutput`、`ModelCapabilityReasoningMetadata`、
+  `ModelCapabilityParallelToolCalls`、`ModelCapabilityMCPServerMetadata`、
+  `ModelCapabilityModelHandledMCP`、`ModelCapabilityTokenUsage`
+- `ModelCapabilities`
+- `ModelCapabilitiesProvider`
+- `ModelCapabilityRequirement`
+- `CapabilitiesOf`
+- `ModelSatisfiesCapabilities`
+- `SelectModelByCapabilities`
 
 ## 模型适配器
 
@@ -348,6 +359,8 @@ request ID、tool name 和 subagent ID。生成器返回空值时会回退到默
 - `ErrMCPToolNotFound`
 - `ErrSubagentNotFound`
 - `ErrModelAPIUnsupported`
+- `ErrCapabilityMismatch`
+- `CapabilityMismatchError`
 - `ErrReliableRateLimited`
 - `ErrReliableCircuitOpen`
 - `ErrReliableBudgetExceeded`

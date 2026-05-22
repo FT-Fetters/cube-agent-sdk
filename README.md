@@ -220,6 +220,36 @@ model, err := agent.NewModel(agent.ModelConfig{
 `NewModel` is a convenience factory. Provider-specific constructors remain
 available when an application wants protocol-specific fields or clearer wiring.
 
+
+## Provider capability matrix
+
+Applications can inspect provider protocol support with `CapabilitiesOf(model)` before selecting a model:
+
+```go
+required := agent.ModelCapabilityRequirement{Tools: true, Streaming: true}
+model, caps, ok := agent.SelectModelByCapabilities(candidates, required)
+if !ok {
+	return fmt.Errorf("no configured model supports tools and streaming")
+}
+_ = caps
+_ = model
+```
+
+Built-in declarations are protocol-level adapter support, not a guarantee for
+every remote model variant behind the same endpoint.
+
+| Provider API | Tools | Streaming | JSON mode | Structured output | Reasoning metadata | Parallel tool calls | MCP metadata | Model-handled MCP | Token usage |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ModelAPIOpenAICompatible` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+| `ModelAPIOpenAIResponses` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
+| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+
+When a model declares capabilities, the agent rejects obvious incompatible
+configuration before provider calls. The error is compatible with
+`errors.Is(err, agent.ErrCapabilityMismatch)` and `errors.As` into
+`*agent.CapabilityMismatchError`. Custom models without capability declarations
+keep the previous permissive behavior.
+
 ## OpenAI Responses Models
 
 Use `NewOpenAIResponsesModel` or `NewModel` with

@@ -373,6 +373,10 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 	}
 	ctx = withRunID(ctx, a.runID(config))
 
+	if err := a.checkModelCapabilities(ctx, false); err != nil {
+		return Message{}, err
+	}
+
 	a.mu.Lock()
 	a.messages = append(a.messages, Message{Role: RoleUser, Content: input})
 	a.mu.Unlock()
@@ -503,6 +507,9 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 	}
 	ctx = withRunID(ctx, a.runID(config))
 	started := time.Now()
+	if err := a.checkModelCapabilities(ctx, true); err != nil {
+		return nil, err
+	}
 
 	streamModel, ok := a.model.(StreamModel)
 	if !ok {

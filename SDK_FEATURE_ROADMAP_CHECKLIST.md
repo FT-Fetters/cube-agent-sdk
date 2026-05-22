@@ -53,7 +53,7 @@
     - 测试输出稳定，适合 CI 使用。
     - 文档给出典型 eval 用例：工具选择、审批拒绝、模型错误、上下文压缩和流式失败。
 
-- [ ] **7. Provider capability matrix**
+- [x] **7. Provider capability matrix**
   - 为模型适配器补充能力声明，描述 tools、streaming、JSON mode、reasoning、parallel tool calls、MCP 等支持情况。
   - 验收目标：
     - provider 可暴露 `Capabilities` 类信息。

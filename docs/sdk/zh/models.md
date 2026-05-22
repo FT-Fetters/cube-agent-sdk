@@ -43,6 +43,33 @@ model, err := agent.NewModel(agent.ModelConfig{
 
 不支持的值会返回 `ErrModelAPIUnsupported`。
 
+
+## Provider 能力矩阵
+
+内置 capability 声明描述的是 protocol-level adapter support，不保证该协议背后的每个
+远端模型都启用同样能力。应用可以用 `CapabilitiesOf(model)` 读取声明，用
+`ModelCapabilities.Supports` 做判断，或用 `SelectModelByCapabilities` 在创建 agent
+前选择符合要求的模型或降级模型。
+
+| Provider API | Tools | Streaming | JSON mode | Structured output | Reasoning metadata | Parallel tool calls | `MCPServerMetadata` | `ModelHandledMCP` | Token usage |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ModelAPIOpenAICompatible` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+| `ModelAPIOpenAIResponses` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
+| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+
+`MCPServerMetadata` 表示适配器会消费 `ModelRequest.MCPServers`。
+`ModelHandledMCP` 表示远端模型或 provider 负责访问 MCP server。当前内置适配器会暴露
+本地 tool descriptors，但不会把直接 MCP server 元数据发送给 provider；使用这些适配器
+时，应把 SDK 管理的 MCP clients 作为 tools 挂载。`TokenUsage` 表示 provider 报告 usage
+时适配器会映射它；零值仍表示本次调用没有可用 usage。
+
+当模型声明 capabilities 后，agent 会在 model call 前检查明显不兼容的配置。配置 tools
+需要 `Tools`，直接配置 MCP servers 需要 `MCPServerMetadata`，`RunStream` 需要
+`Streaming`。不匹配时返回结构化错误，可用
+`errors.Is(err, agent.ErrCapabilityMismatch)` 判断，并可用 `errors.As` 提取
+`*agent.CapabilityMismatchError`。没有实现 `ModelCapabilitiesProvider` 的自定义模型保持
+之前的宽松兼容行为。
+
 ## OpenAI-Compatible Chat Completions
 
 对暴露标准 `/chat/completions` 请求和响应结构的 provider，使用

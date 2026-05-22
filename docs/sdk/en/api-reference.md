@@ -30,6 +30,17 @@ method-level details while keeping this page as a navigation aid.
 - `StreamEvent`
 - `StreamEventType`
 - `StreamEventDelta`, `StreamEventDone`, `StreamEventError`
+- `ModelCapability`
+- `ModelCapabilityTools`, `ModelCapabilityStreaming`, `ModelCapabilityJSONMode`,
+  `ModelCapabilityStructuredOutput`, `ModelCapabilityReasoningMetadata`,
+  `ModelCapabilityParallelToolCalls`, `ModelCapabilityMCPServerMetadata`,
+  `ModelCapabilityModelHandledMCP`, `ModelCapabilityTokenUsage`
+- `ModelCapabilities`
+- `ModelCapabilitiesProvider`
+- `ModelCapabilityRequirement`
+- `CapabilitiesOf`
+- `ModelSatisfiesCapabilities`
+- `SelectModelByCapabilities`
 
 ## Model Adapters
 
@@ -352,6 +363,8 @@ results fall back to the default request ID format.
 - `ErrMCPToolNotFound`
 - `ErrSubagentNotFound`
 - `ErrModelAPIUnsupported`
+- `ErrCapabilityMismatch`
+- `CapabilityMismatchError`
 - `ErrReliableRateLimited`
 - `ErrReliableCircuitOpen`
 - `ErrReliableBudgetExceeded`

@@ -45,6 +45,36 @@ Supported `APIType` values:
 
 Unsupported values return `ErrModelAPIUnsupported`.
 
+
+## Provider Capability Matrix
+
+Built-in capability declarations describe protocol-level adapter support, not a
+guarantee that every remote model behind that provider protocol enables the same
+feature. Applications can inspect declarations with `CapabilitiesOf(model)`,
+compare them with `ModelCapabilities.Supports`, or choose a fallback with
+`SelectModelByCapabilities` before constructing an agent.
+
+| Provider API | Tools | Streaming | JSON mode | Structured output | Reasoning metadata | Parallel tool calls | `MCPServerMetadata` | `ModelHandledMCP` | Token usage |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ModelAPIOpenAICompatible` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+| `ModelAPIOpenAIResponses` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
+| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+
+`MCPServerMetadata` means the adapter consumes `ModelRequest.MCPServers`.
+`ModelHandledMCP` means the remote model or provider performs MCP access. The
+current built-in adapters expose local tool descriptors but do not send direct
+MCP server metadata to the provider; use SDK-managed MCP clients as tools when
+using those adapters. `TokenUsage` means the adapter maps usage when the
+provider reports it, and the zero value still means usage was unavailable.
+
+When a model declares capabilities, the agent checks obvious incompatible
+configuration before model calls. Tool configuration requires `Tools`, direct
+MCP server configuration requires `MCPServerMetadata`, and `RunStream` requires
+`Streaming`. Mismatches return a structured error compatible with
+`errors.Is(err, agent.ErrCapabilityMismatch)` and `errors.As` into
+`*agent.CapabilityMismatchError`. Custom models that do not implement
+`ModelCapabilitiesProvider` keep the previous permissive behavior.
+
 ## OpenAI-Compatible Chat Completions
 
 Use `NewOpenAICompatibleModel` for providers that expose the standard

@@ -111,10 +111,25 @@ func NewReliableModel(model Model, options ...ReliableModelOption) Model {
 		model:  model,
 		config: config,
 	}
+	capabilities, hasCapabilities := CapabilitiesOf(model)
 	if streamModel, ok := model.(StreamModel); ok {
-		return &reliableStreamModel{
+		stream := &reliableStreamModel{
 			reliableModel: wrapped,
 			stream:        streamModel,
+		}
+		if hasCapabilities {
+			return &reliableCapabilityStreamModel{
+				reliableStreamModel: stream,
+				capabilities:        capabilities,
+			}
+		}
+		return stream
+	}
+	if hasCapabilities {
+		capabilities.Streaming = false
+		return &reliableCapabilityModel{
+			reliableModel: wrapped,
+			capabilities:  capabilities,
 		}
 	}
 	return wrapped
