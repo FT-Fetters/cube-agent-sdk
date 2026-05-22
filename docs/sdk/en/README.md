@@ -15,7 +15,7 @@ Applications connect those pieces through Go interfaces and options.
 - [Models](./models.md): built-in adapters and custom model implementations.
 - [Tools](./tools.md): local functions, schemas, validation, and tool risks.
 - [Streaming](./streaming.md): incremental assistant output with `RunStream`.
-- [MCP](./mcp.md): MCP server metadata and stdio tool bridging.
+- [MCP](./mcp.md): MCP server metadata and stdio, HTTP, and SSE tool bridging.
 - [Sessions](./sessions.md): reset, snapshot, restore, and fork.
 - [Approvals](./approvals.md): built-in policies and production approval flows.
 - [Observability](./observability.md): hooks, observers, stable telemetry names,
@@ -36,7 +36,7 @@ Applications connect those pieces through Go interfaces and options.
 - OpenAI-compatible chat completions, OpenAI Responses, and Anthropic Messages
   adapters with provider-native streaming support.
 - Tool descriptors, tool argument schemas, and preflight validation.
-- MCP stdio client and MCP-to-tool bridge.
+- MCP stdio, HTTP, and SSE clients with MCP-to-tool bridging.
 - Session reset, snapshot, restore, and fork operations.
 - Approval policies, hooks, observers, and sanitized lifecycle metadata.
 - Compaction and subagent orchestration primitives.
@@ -45,7 +45,7 @@ Applications connect those pieces through Go interfaces and options.
 
 - Provider accounts, model IDs, base URLs, API keys, retry policy, and network
   controls.
-- MCP server binaries, deployment, supervision, and runtime permissions.
+- MCP server binaries or URLs, deployment, supervision, and runtime permissions.
 - Human approval UI or business policy integration.
 - Durable storage adapters, encryption, access control, retention, and migration
   for snapshots, session records, and event logs.

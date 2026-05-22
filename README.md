@@ -159,7 +159,7 @@ The SDK provides:
 - OpenAI Responses API adapter with streaming support.
 - Tool descriptor and JSON Schema subset for model-facing function calling.
 - Tool argument validation before local tool execution.
-- MCP stdio client and MCP-to-`Tool` bridge.
+- MCP stdio, HTTP, and SSE clients with MCP-to-`Tool` bridging.
 - Session snapshot, restore, reset, and fork APIs.
 - Approval policy helpers with tool-name and risk allowlists.
 - Sanitized observations and structured lifecycle events.
@@ -174,7 +174,7 @@ The SDK provides:
 Applications provide:
 
 - Real model provider credentials, model IDs, and base URLs.
-- External MCP server binaries, runtime configuration, and deployment.
+- External MCP server binaries or URLs, runtime configuration, and deployment.
 - Human approval UI or business policy integration.
 - Durable storage, encryption, retention policy, and migration strategy for
   session snapshots.
@@ -400,7 +400,7 @@ timeouts, HTTP 408/429, and 5xx provider diagnostics or subcategories. Bad
 requests, auth failures, validation errors, approval errors, tool errors, and
 other non-retryable categories are not retried by default.
 
-## MCP Stdio
+## MCP Stdio, HTTP, and SSE
 
 There are two MCP integration paths.
 
@@ -417,10 +417,11 @@ bot, err := agent.New(cfg, model, agent.WithMCPServers(agent.MCPServerConfig{
 }))
 ```
 
-Second, run an MCP stdio server as SDK tools:
+Second, run an MCP server as SDK tools. `StartMCPClient` selects stdio, HTTP,
+or SSE from `MCPServerConfig.Transport`:
 
 ```go
-client, err := agent.StartMCPStdioClient(ctx, agent.MCPServerConfig{
+client, err := agent.StartMCPClient(ctx, agent.MCPServerConfig{
 	Name:      "filesystem",
 	Command:   os.Getenv("MCP_FILESYSTEM_COMMAND"),
 	Args:      []string{"--root", os.Getenv("MCP_FILESYSTEM_ROOT")},
@@ -442,10 +443,39 @@ bot, err := agent.New(cfg, model,
 )
 ```
 
-The SDK launches the stdio process, performs MCP initialize, lists tools, maps
-MCP schemas to SDK tool schemas, calls `tools/call`, and returns MCP text content
-as `ToolResult`. Applications must supply the real server binary, environment,
-filesystem or network permissions, process supervision policy, and approval UX.
+HTTP MCP servers use JSON-RPC POSTs to `URL`:
+
+```go
+client, err := agent.StartMCPClient(ctx, agent.MCPServerConfig{
+	Name:      "remote-tools",
+	URL:       "https://mcp.example.com/rpc",
+	Transport: agent.MCPTransportHTTP,
+})
+```
+
+SSE MCP servers connect to `URL`, read an `endpoint` event, and then send
+JSON-RPC requests to that discovered HTTP endpoint:
+
+```go
+client, err := agent.StartMCPClient(ctx, agent.MCPServerConfig{
+	Name:      "remote-tools",
+	URL:       "https://mcp.example.com/events",
+	Transport: agent.MCPTransportSSE,
+})
+```
+
+All SDK-managed MCP clients perform initialize, support `tools/list` pagination,
+map MCP schemas to SDK tool schemas, call `tools/call`, expose `Tools(ctx)`,
+refresh tool descriptors with `RefreshTools(ctx)`, probe health with
+`Health(ctx)`, and clean up with `Close()`. HTTP and SSE startup, health, and
+list calls use a short retry/backoff window for transient network failures,
+HTTP 408/429, and 5xx responses; tool calls are not retried to avoid duplicating
+side effects.
+
+Diagnostics and errors avoid MCP environment values, URL query strings, raw HTTP
+response bodies, tool arguments, and tool results. Applications must still
+supply the real server binary or URL, credentials, environment, filesystem or
+network permissions, process supervision policy, and approval UX.
 
 ## Session State
 

@@ -23,7 +23,9 @@ release. Dates use ISO 8601 format.
   when providers report it.
 - Composable reliable model wrapper for retries, timeouts, backoff, rate limits,
   circuit breaking, token/cost budgets, and safe reliability events.
-- Minimal MCP stdio client and tool bridge.
+- MCP stdio, HTTP JSON-RPC, and SSE endpoint-discovery clients with
+  shared tool bridging, refresh, health checks, close cleanup, retry/backoff,
+  and sanitized diagnostics.
 - Session snapshot, restore, reset, and fork APIs.
 - Dependency-free session persistence contracts, append-only session event logs,
   in-memory store/log implementation, schema/version validation, and session

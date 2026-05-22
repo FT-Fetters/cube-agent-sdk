@@ -106,8 +106,14 @@ method-level details while keeping this page as a navigation aid.
 - `MCPTransport`
 - `MCPTransportStdio`, `MCPTransportSSE`, `MCPTransportHTTP`
 - `WithMCPServers`
+- `MCPClient`
+- `StartMCPClient`
 - `StartMCPStdioClient`
+- `StartMCPHTTPClient`
+- `StartMCPSSEClient`
 - `MCPStdioClient`
+- `MCPHTTPClient`
+- `MCPSSEClient`
 - `MCPRPCError`
 - `MCPToolDescriptor`
 - `MCPContent`

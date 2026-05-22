@@ -106,8 +106,14 @@
 - `MCPTransport`
 - `MCPTransportStdio`、`MCPTransportSSE`、`MCPTransportHTTP`
 - `WithMCPServers`
+- `MCPClient`
+- `StartMCPClient`
 - `StartMCPStdioClient`
+- `StartMCPHTTPClient`
+- `StartMCPSSEClient`
 - `MCPStdioClient`
+- `MCPHTTPClient`
+- `MCPSSEClient`
 - `MCPRPCError`
 - `MCPToolDescriptor`
 - `MCPContent`

@@ -16,15 +16,16 @@ import (
 	"time"
 
 	"github.com/cubence/cube-agent-sdk/internal/core"
+	mcpcommon "github.com/cubence/cube-agent-sdk/internal/mcp"
 	"github.com/cubence/cube-agent-sdk/internal/schema"
 )
 
-const mcpProtocolVersion = "2025-11-25"
+const mcpProtocolVersion = mcpcommon.ProtocolVersion
 
 var (
-	ErrMCPProcessExited = errors.New("agent: mcp process exited")
-	ErrMCPRPC           = errors.New("agent: mcp json-rpc error")
-	ErrMCPToolNotFound  = errors.New("agent: mcp tool not found")
+	ErrMCPProcessExited = mcpcommon.ErrMCPProcessExited
+	ErrMCPRPC           = mcpcommon.ErrMCPRPC
+	ErrMCPToolNotFound  = mcpcommon.ErrMCPToolNotFound
 )
 
 type MCPServerConfig = core.MCPServerConfig
@@ -44,60 +45,10 @@ const (
 	SchemaTypeArray   = schema.SchemaTypeArray
 )
 
-// MCPRPCError is returned when an MCP server responds with a JSON-RPC error.
-type MCPRPCError struct {
-	Code    int `json:"code"`
-	Message string
-	Data    any `json:"data,omitempty"`
-}
-
-func (e *MCPRPCError) Error() string {
-	if e == nil {
-		return ""
-	}
-	if e.Message == "" {
-		return fmt.Sprintf("%v: code %d", ErrMCPRPC, e.Code)
-	}
-	return fmt.Sprintf("%v: code %d: %s", ErrMCPRPC, e.Code, e.Message)
-}
-
-func (e *MCPRPCError) Unwrap() error {
-	return ErrMCPRPC
-}
-
-// MCPToolDescriptor describes a tool returned by MCP tools/list.
-type MCPToolDescriptor struct {
-	Name        string         `json:"name"`
-	Title       string         `json:"title,omitempty"`
-	Description string         `json:"description,omitempty"`
-	InputSchema map[string]any `json:"inputSchema,omitempty"`
-}
-
-// MCPContent is one content item returned by MCP tools/call.
-type MCPContent struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	Data     string `json:"data,omitempty"`
-	MimeType string `json:"mimeType,omitempty"`
-}
-
-// MCPToolCallResult is the decoded result from MCP tools/call.
-type MCPToolCallResult struct {
-	Content           []MCPContent   `json:"content,omitempty"`
-	IsError           bool           `json:"isError,omitempty"`
-	StructuredContent map[string]any `json:"structuredContent,omitempty"`
-}
-
-// TextContent returns MCP text content blocks joined for use as a ToolResult.
-func (r MCPToolCallResult) TextContent() string {
-	parts := make([]string, 0, len(r.Content))
-	for _, content := range r.Content {
-		if content.Type == "text" {
-			parts = append(parts, content.Text)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
+type MCPRPCError = mcpcommon.MCPRPCError
+type MCPToolDescriptor = mcpcommon.MCPToolDescriptor
+type MCPContent = mcpcommon.MCPContent
+type MCPToolCallResult = mcpcommon.MCPToolCallResult
 
 // MCPStdioClient manages one stdio MCP server subprocess.
 type MCPStdioClient struct {
@@ -130,27 +81,15 @@ type mcpRPCRequest struct {
 	Params  any    `json:"params,omitempty"`
 }
 
-type mcpRPCResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *MCPRPCError    `json:"error,omitempty"`
-}
+type mcpRPCResponse = mcpcommon.RPCResponse
 
 type mcpPendingResponse struct {
 	response mcpRPCResponse
 	err      error
 }
 
-type mcpListToolsResult struct {
-	Tools      []MCPToolDescriptor `json:"tools"`
-	NextCursor string              `json:"nextCursor,omitempty"`
-}
-
-type mcpCallToolParams struct {
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-}
+type mcpListToolsResult = mcpcommon.ListToolsResult
+type mcpCallToolParams = mcpcommon.CallToolParams
 
 // StartMCPStdioClient launches a stdio MCP server and completes initialize.
 func StartMCPStdioClient(ctx context.Context, config MCPServerConfig) (*MCPStdioClient, error) {
@@ -261,6 +200,15 @@ func (c *MCPStdioClient) Close() error {
 
 // ListTools calls MCP tools/list and refreshes the client's known tool cache.
 func (c *MCPStdioClient) ListTools(ctx context.Context) ([]MCPToolDescriptor, error) {
+	return c.listTools(ctx, "mcp.tools.list")
+}
+
+// RefreshTools explicitly refreshes the client's known tool cache.
+func (c *MCPStdioClient) RefreshTools(ctx context.Context) ([]MCPToolDescriptor, error) {
+	return c.listTools(ctx, "mcp.tools.refresh")
+}
+
+func (c *MCPStdioClient) listTools(ctx context.Context, operation string) ([]MCPToolDescriptor, error) {
 	var all []MCPToolDescriptor
 	var cursor string
 	for {
@@ -270,7 +218,7 @@ func (c *MCPStdioClient) ListTools(ctx context.Context) ([]MCPToolDescriptor, er
 		}
 		var result mcpListToolsResult
 		if err := c.sendRequest(ctx, "tools/list", params, &result); err != nil {
-			return nil, c.mcpError("mcp.tools.list", "", err)
+			return nil, c.mcpError(operation, "", err)
 		}
 		all = append(all, result.Tools...)
 		if result.NextCursor == "" {
@@ -314,6 +262,15 @@ func (c *MCPStdioClient) CallTool(ctx context.Context, name string, arguments ma
 		return MCPToolCallResult{}, c.mcpError("mcp.tool.call", name, err)
 	}
 	return result, nil
+}
+
+// Health verifies that the stdio server can respond to a lightweight MCP ping.
+func (c *MCPStdioClient) Health(ctx context.Context) error {
+	var result json.RawMessage
+	if err := c.sendRequest(ctx, "ping", map[string]any{}, &result); err != nil {
+		return c.mcpError("mcp.health", "", err)
+	}
+	return nil
 }
 
 func (c *MCPStdioClient) ensureKnownTool(ctx context.Context, name string) error {
@@ -507,16 +464,7 @@ func (c *MCPStdioClient) processExitedError(err error) error {
 }
 
 func (c *MCPStdioClient) mcpError(operation string, toolName string, err error) error {
-	if err == nil {
-		return nil
-	}
-	wrapped := &core.AgentError{
-		Category:  core.ErrorCategoryMCP,
-		Operation: operation,
-		Cause:     err,
-	}
-	wrapped.ToolName = toolName
-	return wrapped
+	return mcpcommon.MCPError(operation, toolName, err)
 }
 
 type mcpStdioTool struct {
@@ -560,11 +508,7 @@ func (t *mcpStdioTool) Call(ctx context.Context, call ToolCall) (ToolResult, err
 }
 
 func toolParametersSchemaFromMCP(schema map[string]any) *ToolParametersSchema {
-	if len(schema) == 0 {
-		return nil
-	}
-	converted := convertMCPSchema(schema)
-	return &converted
+	return mcpcommon.ToolParametersSchemaFromMCP(schema)
 }
 
 func convertMCPSchema(schema map[string]any) ToolParametersSchema {

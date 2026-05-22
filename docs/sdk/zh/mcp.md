@@ -1,7 +1,7 @@
 # MCP
 
-SDK 通过两种方式支持 MCP：把 server 元数据传给模型请求，或把 stdio MCP tools
-桥接成 SDK `Tool`。
+SDK 通过两种方式支持 MCP：把 server 元数据传给模型请求，或通过 stdio、HTTP
+JSON-RPC、实用的 SSE endpoint 发现流程把 MCP tools 桥接成 SDK `Tool`。
 
 ## 由模型处理的 MCP 元数据
 
@@ -22,13 +22,13 @@ bot, err := agent.New(cfg, model,
 SDK 会把配置的 servers 放进 `ModelRequest.MCPServers`。适配器决定是否以及如何
 使用这些元数据。
 
-## Stdio 工具桥接
+## SDK 工具桥接
 
-当应用希望 SDK 启动 stdio server、发现工具并把它们暴露为本地 agent tools 时，
-使用 `StartMCPStdioClient`。
+当应用希望 SDK 连接 MCP server、发现工具并把它们暴露为本地 agent tools 时，
+使用 `StartMCPClient`。
 
 ```go
-client, err := agent.StartMCPStdioClient(ctx, agent.MCPServerConfig{
+client, err := agent.StartMCPClient(ctx, agent.MCPServerConfig{
 	Name:      "filesystem",
 	Command:   os.Getenv("MCP_FILESYSTEM_COMMAND"),
 	Args:      []string{"--root", os.Getenv("MCP_FILESYSTEM_ROOT")},
@@ -50,12 +50,41 @@ bot, err := agent.New(cfg, model,
 )
 ```
 
-stdio client 会执行 initialize、列出 tools、把 MCP schemas 映射为 SDK tool
-schemas、调用 `tools/call`，并把 MCP text content 返回为 `ToolResult`。
+通用构造函数会根据 `MCPServerConfig.Transport` 选择 transport。也可以直接使用
+`StartMCPStdioClient`、`StartMCPHTTPClient` 和 `StartMCPSSEClient`。
+
+HTTP client 会把 JSON-RPC requests POST 到 `MCPServerConfig.URL`：
+
+```go
+client, err := agent.StartMCPClient(ctx, agent.MCPServerConfig{
+	Name:      "remote-tools",
+	URL:       "https://mcp.example.com/rpc",
+	Transport: agent.MCPTransportHTTP,
+})
+```
+
+SSE client 会连接 `MCPServerConfig.URL`，读取 `endpoint` event，然后把 JSON-RPC
+requests 发送到发现的 HTTP endpoint：
+
+```go
+client, err := agent.StartMCPClient(ctx, agent.MCPServerConfig{
+	Name:      "remote-tools",
+	URL:       "https://mcp.example.com/events",
+	Transport: agent.MCPTransportSSE,
+})
+```
+
+所有由 SDK 管理的 clients 都会执行 initialize，支持 `tools/list` 分页，把 MCP
+schemas 映射为 SDK tool schemas，调用 `tools/call`，把 MCP text content 返回为
+`ToolResult`，通过 `RefreshTools(ctx)` 刷新已知工具，通过 `Health(ctx)` 探测
+server，并通过 `Close()` 清理资源。HTTP 和 SSE 的启动、列表和健康检查会对临时
+网络错误、HTTP 408/429 和 5xx 响应使用短重试/backoff；工具调用不会重试，以免
+重复产生副作用。
 
 ## 职责边界
 
-SDK 负责启动和桥接 stdio servers。真实 server 二进制、环境、文件系统或网络
-权限、进程监管和审批 UX 仍由应用提供。
+真实 server 二进制或 URL、凭证、环境、文件系统或网络权限、进程监管和审批 UX
+仍由应用提供。SDK 的 diagnostics 和 error strings 不包含 MCP environment values、
+URL query strings、原始 HTTP response bodies、工具参数或工具结果。
 
 相关哨兵错误包括 `ErrMCPProcessExited`、`ErrMCPRPC` 和 `ErrMCPToolNotFound`。
