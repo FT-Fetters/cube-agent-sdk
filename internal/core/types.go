@@ -64,13 +64,16 @@ const (
 )
 
 // StreamEvent carries one item from a streaming run. Delta contains incremental
-// assistant text; Message is populated on done; Error is populated on error.
+// assistant text; Message and Usage are populated on done when available; Error
+// is populated on error.
 type StreamEvent struct {
 	Type    StreamEventType
 	AgentID string
 	Delta   string
 	Message Message
-	Error   error
+	// Usage reports final token counts when a streaming model/provider reports them.
+	Usage TokenUsage
+	Error error
 }
 
 // ModelRequest is the fully assembled prompt and capability set for one model call.

@@ -258,6 +258,76 @@ func TestOpenAIResponsesModelParsesUsage(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesModelStreamsDeltasDoneAndUsage(t *testing.T) {
+	var sawRequest bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawRequest = true
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("path = %q, want /v1/responses", r.URL.Path)
+		}
+		var payload openAIResponsesRequestForTest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if !payload.Stream {
+			t.Fatalf("stream = false, want true")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "response.output_text.delta", `{"type":"response.output_text.delta","delta":"Hel"}`)
+		writeSSEEvent(t, w, "response.output_text.delta", `{"type":"response.output_text.delta","delta":"lo"}`)
+		writeSSEEvent(t, w, "response.completed", `{"type":"response.completed","response":{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":13,"output_tokens":5,"total_tokens":18}}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAIResponsesModel(OpenAIResponsesConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if !sawRequest {
+		t.Fatal("server did not receive a request")
+	}
+	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 13, OutputTokens: 5, TotalTokens: 18})
+}
+
+func TestOpenAIResponsesModelStreamEmitsProviderErrorWithDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "error", `{"type":"error","error":{"code":"rate_limit_exceeded","message":"provider secret payload"}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAIResponsesModel(OpenAIResponsesConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	assertProviderStreamError(t, got, ProviderDiagnostics{
+		Provider:     "openai-responses",
+		EndpointHost: server.Listener.Addr().String(),
+	}, ModelErrorSubcategoryUnknown)
+	if strings.Contains(got[0].Error.Error(), "provider secret payload") {
+		t.Fatalf("stream error exposed unsafe provider detail: %v", got[0].Error)
+	}
+}
+
 func TestOpenAIResponsesModelRejectsEmptyOrInvalidToolCallArguments(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -360,6 +430,7 @@ type openAIResponsesRequestForTest struct {
 	Tools           []openAIResponsesToolForTest `json:"tools"`
 	MaxOutputTokens int                          `json:"max_output_tokens"`
 	Store           *bool                        `json:"store"`
+	Stream          bool                         `json:"stream"`
 }
 
 type openAIResponsesToolForTest struct {

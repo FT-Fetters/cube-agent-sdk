@@ -193,7 +193,8 @@ credentials 或完整 provider URLs。事故响应时，记录 provider request 
 ## 流式输出和工具耗时
 
 对于 streaming runs，最终 `EventAfterModel` observation 会把总 stream duration 放在
-`Duration`，并携带脱敏 `StreamTelemetry`：
+`Duration`；如果最终 done event 报告 provider `TokenUsage`，也会携带该 usage；并携带脱敏
+`StreamTelemetry`：
 
 - time to first token；
 - delta count；

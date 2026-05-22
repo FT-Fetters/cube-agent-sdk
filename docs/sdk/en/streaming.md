@@ -1,7 +1,9 @@
 # Streaming
 
-Streaming models implement `StreamModel` in addition to `Model`. Use
-`RunStream` when callers need incremental assistant text.
+Streaming models implement `StreamModel` in addition to `Model`. The built-in
+OpenAI-compatible chat completions, OpenAI Responses, and Anthropic Messages
+adapters support `RunStream` with provider-native streaming. Use `RunStream`
+when callers need incremental assistant text.
 
 ```go
 events, err := bot.RunStream(ctx, "Write a short summary.")
@@ -18,6 +20,7 @@ for event := range events {
 		fmt.Print(event.Delta)
 	case agent.StreamEventDone:
 		fmt.Println(event.Message.Content)
+		_ = event.Usage // Final provider token usage when the stream reports it.
 	case agent.StreamEventError:
 		return event.Error
 	}
@@ -27,17 +30,18 @@ for event := range events {
 ## Event Types
 
 - `StreamEventDelta`: incremental assistant text.
-- `StreamEventDone`: final assistant message.
+- `StreamEventDone`: final assistant message and provider token usage when available.
 - `StreamEventError`: stream failure.
 
 The SDK commits the final assistant message only after a done event. Interrupted
 delta streams do not persist partial assistant text.
 
 Final streaming `EventAfterModel` events and observations include total stream
-duration through `Duration`. When at least one delta is received, they also
-include sanitized `StreamTelemetry` with time to first token, delta count,
-streamed delta byte count, and throughput. Stream telemetry never contains the
-streamed text.
+duration through `Duration`. When a model reports usage on the done event, the
+same token counts are copied to `TokenUsage`. When at least one delta is
+received, they also include sanitized `StreamTelemetry` with time to first token,
+delta count, streamed delta byte count, and throughput. Stream telemetry never
+contains the streamed text.
 
 Use `WithStreamObservations()` on a `RunStream` call when you need observer-only
 stream lifecycle telemetry for start, first delta, done, and error. The option
@@ -47,3 +51,8 @@ does not emit per-delta observations beyond the first delta.
 
 Streamed tool calls are not executed yet. If a streaming model emits tool calls,
 the SDK reports `ErrStreamingToolCallsUnsupported`.
+
+If a provider rejects the initial streaming HTTP request, `RunStream` returns a
+structured provider error immediately. If the provider stream starts and then
+emits an error or invalid event, callers receive `StreamEventError` with safe
+provider diagnostics when available.

@@ -289,6 +289,7 @@ errors, prompts, or credentials.
 `EstimatedTokens` is the SDK's request-side estimate and stays populated even
 when the provider does not report usage. `TokenUsage` carries real input,
 output, and total token counts from `ModelResponse.Usage` on non-streaming
+`EventAfterModel` records and from final `StreamEvent.Usage` on streaming
 `EventAfterModel` records and their observations. If usage is unavailable, the
 `TokenUsage` fields remain zero.
 

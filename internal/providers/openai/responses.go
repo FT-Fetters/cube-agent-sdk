@@ -120,6 +120,7 @@ type openAIResponsesRequest struct {
 	Tools           []openAIResponsesTool `json:"tools,omitempty"`
 	MaxOutputTokens int                   `json:"max_output_tokens,omitempty"`
 	Store           *bool                 `json:"store,omitempty"`
+	Stream          bool                  `json:"stream,omitempty"`
 }
 
 type openAIResponsesInputMessage struct {

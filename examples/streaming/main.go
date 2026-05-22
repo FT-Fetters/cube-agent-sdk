@@ -34,6 +34,7 @@ func (streamingModel) Stream(ctx context.Context, request agent.ModelRequest) (<
 		case events <- agent.StreamEvent{
 			Type:    agent.StreamEventDone,
 			Message: agent.Message{Role: agent.RoleAssistant, Content: "streamed assistant text"},
+			Usage:   agent.TokenUsage{InputTokens: 6, OutputTokens: 3, TotalTokens: 9},
 		}:
 		}
 	}()

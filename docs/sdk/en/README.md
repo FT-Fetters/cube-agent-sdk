@@ -34,7 +34,7 @@ Applications connect those pieces through Go interfaces and options.
 - Prompt assembly, message history, and active skill injection.
 - Model and streaming model interfaces.
 - OpenAI-compatible chat completions, OpenAI Responses, and Anthropic Messages
-  adapters.
+  adapters with provider-native streaming support.
 - Tool descriptors, tool argument schemas, and preflight validation.
 - MCP stdio client and MCP-to-tool bridge.
 - Session reset, snapshot, restore, and fork operations.

@@ -219,7 +219,8 @@ controls.
 ## Streaming and Tool Timing
 
 For streaming runs, final `EventAfterModel` observations carry total stream
-duration in `Duration` and sanitized `StreamTelemetry`:
+duration in `Duration`, provider `TokenUsage` when the final done event reports
+it, and sanitized `StreamTelemetry`:
 
 - time to first token;
 - delta count;

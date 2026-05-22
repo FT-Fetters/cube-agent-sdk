@@ -20,9 +20,9 @@ type StreamModel interface {
 `ModelRequest` contains the assembled system prompt, conversation messages,
 tool descriptors, MCP server metadata, and active skills. `ModelResponse`
 contains either a final assistant message or tool calls for the agent to run.
-Custom models can also set `ModelResponse.Usage` with `TokenUsage` values for
-input, output, and total tokens when exact model usage is available. The zero
-value means usage was not reported.
+Custom models can set `ModelResponse.Usage` for non-streaming calls and
+`StreamEvent.Usage` on the final done event for streaming calls when exact
+provider token usage is available. The zero value means usage was not reported.
 
 ## Model Factory
 
@@ -61,8 +61,10 @@ model, err := agent.NewOpenAICompatibleModel(agent.OpenAICompatibleConfig{
 
 `BaseURL` may be a provider root or a full `/chat/completions` URL. The adapter
 maps SDK messages, tools, and tool calls to the chat completions wire format.
-When the provider returns `usage.prompt_tokens`, `usage.completion_tokens`, and
-`usage.total_tokens`, the adapter maps them to `ModelResponse.Usage`.
+It also implements `StreamModel` by setting `stream` and requesting the final
+usage chunk with `stream_options.include_usage`. When the provider returns
+`usage.prompt_tokens`, `usage.completion_tokens`, and `usage.total_tokens`, the
+adapter maps them to `ModelResponse.Usage` or final `StreamEvent.Usage`.
 
 ## OpenAI Responses API
 
@@ -82,9 +84,11 @@ model, err := agent.NewOpenAIResponsesModel(agent.OpenAIResponsesConfig{
 `BaseURL` may be an API root, a `/v1` URL, or a full `/v1/responses` URL. The
 adapter maps the SDK system prompt to `instructions`, tools to Responses
 function tools, tool results to `function_call_output`, and preserves raw
-Responses output metadata on assistant messages for multi-round tool loops.
-When the response includes token usage, the adapter maps common input, output,
-and total token fields to `ModelResponse.Usage`.
+Responses output metadata on assistant messages for multi-round tool loops. It
+also implements `StreamModel` using Responses semantic streaming events such as
+`response.output_text.delta` and `response.completed`. When the response
+includes token usage, the adapter maps common input, output, and total token
+fields to `ModelResponse.Usage` or final `StreamEvent.Usage`.
 
 ## Anthropic Messages
 
@@ -103,10 +107,11 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 
 `BaseURL` may be a provider root, a `/v1` URL, or a full `/v1/messages` URL.
 If `AnthropicVersion` is empty, the adapter uses `2023-06-01`. If `MaxTokens`
-is empty, the adapter uses its default maximum. When Anthropic returns
-`usage.input_tokens` and `usage.output_tokens`, the adapter maps them to
-`ModelResponse.Usage` and derives the total when the provider does not report
-one.
+is empty, the adapter uses its default maximum. It also implements `StreamModel`
+using Anthropic `content_block_delta`, `message_delta`, and `message_stop` SSE
+events. When Anthropic returns `usage.input_tokens` and `usage.output_tokens`,
+the adapter maps them to `ModelResponse.Usage` or final `StreamEvent.Usage` and
+derives the total when the provider does not report one.
 
 ## Custom Models
 
@@ -123,8 +128,8 @@ func (m retryingModel) Generate(ctx context.Context, request agent.ModelRequest)
 }
 ```
 
-Set `ModelResponse.Usage` when your model implementation already has exact
-provider token counts:
+Set `ModelResponse.Usage` or final `StreamEvent.Usage` when your model
+implementation already has exact provider token counts:
 
 ```go
 return agent.ModelResponse{

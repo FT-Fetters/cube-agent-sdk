@@ -144,6 +144,7 @@ type anthropicMessagesRequest struct {
 	System    string             `json:"system,omitempty"`
 	Messages  []anthropicMessage `json:"messages"`
 	Tools     []anthropicToolDef `json:"tools,omitempty"`
+	Stream    bool               `json:"stream,omitempty"`
 }
 
 type anthropicMessage struct {

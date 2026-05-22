@@ -710,6 +710,7 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 				Round:           round,
 				Duration:        duration,
 				EstimatedTokens: estimatedTokens,
+				TokenUsage:      event.Usage,
 				StreamTelemetry: telemetry.telemetry(duration),
 				Message:         message,
 			}); err != nil {
@@ -722,6 +723,7 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 				Round:           round,
 				Duration:        duration,
 				EstimatedTokens: estimatedTokens,
+				TokenUsage:      event.Usage,
 				StreamTelemetry: telemetry.telemetry(duration),
 			})
 			// Commit only after done so interrupted delta streams do not persist partial assistant text.

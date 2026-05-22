@@ -1670,6 +1670,52 @@ func TestAgentRunStreamObservabilityCarriesStreamTelemetryOnSuccess(t *testing.T
 	assertObservationDoesNotContain(t, afterObservation, "hello")
 }
 
+func TestAgentRunStreamObservabilityCarriesTokenUsageOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	wantUsage := TokenUsage{InputTokens: 21, OutputTokens: 8, TotalTokens: 29}
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "usage"},
+		{Type: StreamEventDone, Usage: wantUsage},
+	}}
+	recorder := &recordingObserver{}
+	var events []Event
+	agent, err := New(Config{ID: "stream-usage-agent"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		WithObserver(recorder),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start", WithStreamObservations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+	if len(got) != 2 || got[1].Type != StreamEventDone {
+		t.Fatalf("stream events = %#v, want delta then done", got)
+	}
+	if got[1].Usage != wantUsage {
+		t.Fatalf("done event usage = %#v, want %#v", got[1].Usage, wantUsage)
+	}
+
+	afterModel := firstEventOfType(t, events, EventAfterModel)
+	if afterModel.TokenUsage != wantUsage {
+		t.Fatalf("after model token usage = %#v, want %#v", afterModel.TokenUsage, wantUsage)
+	}
+	afterObservation := firstObservationOfType(t, recorder.Observations(), EventAfterModel)
+	if afterObservation.TokenUsage != wantUsage {
+		t.Fatalf("after model observation token usage = %#v, want %#v", afterObservation.TokenUsage, wantUsage)
+	}
+	doneObservation := firstObservationOfType(t, recorder.Observations(), EventStreamDone)
+	if doneObservation.TokenUsage != wantUsage {
+		t.Fatalf("stream done observation token usage = %#v, want %#v", doneObservation.TokenUsage, wantUsage)
+	}
+}
+
 func TestAgentRunStreamObservabilityCarriesStreamTelemetryOnErrorAfterDeltas(t *testing.T) {
 	ctx := context.Background()
 	streamErr := errors.New("stream interrupted")

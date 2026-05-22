@@ -18,9 +18,9 @@ type StreamModel interface {
 
 `ModelRequest` 包含组装后的 system prompt、会话消息、工具描述、MCP server
 元数据和 active skills。`ModelResponse` 包含最终 assistant 消息，或要求
-agent 执行的 tool calls。自定义模型在已经拥有精确模型用量时，也可以设置
-`ModelResponse.Usage`，使用 `TokenUsage` 表示 input、output 和 total tokens。
-零值表示未报告 usage。
+agent 执行的 tool calls。自定义模型在已经拥有精确模型用量时，可以为非 streaming
+调用设置 `ModelResponse.Usage`，也可以在 streaming 调用的最终 done event 上设置
+`StreamEvent.Usage`。零值表示未报告 usage。
 
 ## 模型工厂
 
@@ -59,8 +59,10 @@ model, err := agent.NewOpenAICompatibleModel(agent.OpenAICompatibleConfig{
 
 `BaseURL` 可以是 provider root，也可以是完整的 `/chat/completions` URL。该
 适配器会把 SDK messages、tools 和 tool calls 映射到 chat completions wire
-format。当 provider 返回 `usage.prompt_tokens`、`usage.completion_tokens`
-和 `usage.total_tokens` 时，适配器会映射到 `ModelResponse.Usage`。
+format。它也实现了 `StreamModel`，会发送 `stream` 并通过
+`stream_options.include_usage` 请求最终 usage chunk。当 provider 返回
+`usage.prompt_tokens`、`usage.completion_tokens` 和 `usage.total_tokens` 时，
+适配器会映射到 `ModelResponse.Usage` 或最终 `StreamEvent.Usage`。
 
 ## OpenAI Responses API
 
@@ -81,9 +83,11 @@ model, err := agent.NewOpenAIResponsesModel(agent.OpenAIResponsesConfig{
 `BaseURL` 可以是 API root、`/v1` URL，或完整的 `/v1/responses` URL。该适配器
 把 SDK system prompt 映射到 `instructions`，把 tools 映射为 Responses
 function tools，把 tool results 映射为 `function_call_output`，并在 assistant
-消息上保留原始 Responses output 元数据，支持多轮工具循环。当响应包含 token
-usage 时，适配器会把常见的 input、output 和 total token 字段映射到
-`ModelResponse.Usage`。
+消息上保留原始 Responses output 元数据，支持多轮工具循环。它也通过
+`response.output_text.delta`、`response.completed` 等 Responses semantic streaming
+events 实现了 `StreamModel`。当响应包含 token usage 时，适配器会把常见的
+input、output 和 total token 字段映射到 `ModelResponse.Usage` 或最终
+`StreamEvent.Usage`。
 
 ## Anthropic Messages
 
@@ -102,9 +106,11 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 
 `BaseURL` 可以是 provider root、`/v1` URL，或完整的 `/v1/messages` URL。如果
 `AnthropicVersion` 为空，适配器使用 `2023-06-01`。如果 `MaxTokens` 为空，适配器
-使用自己的默认上限。当 Anthropic 返回 `usage.input_tokens` 和
-`usage.output_tokens` 时，适配器会映射到 `ModelResponse.Usage`；如果 provider
-没有报告 total，则由 input 和 output 相加得到。
+使用自己的默认上限。它也通过 Anthropic `content_block_delta`、`message_delta`
+和 `message_stop` SSE events 实现了 `StreamModel`。当 Anthropic 返回
+`usage.input_tokens` 和 `usage.output_tokens` 时，适配器会映射到
+`ModelResponse.Usage` 或最终 `StreamEvent.Usage`；如果 provider 没有报告 total，
+则由 input 和 output 相加得到。
 
 ## 自定义模型
 
@@ -122,7 +128,7 @@ func (m retryingModel) Generate(ctx context.Context, request agent.ModelRequest)
 ```
 
 当模型实现已经拿到 provider 的精确 token 计数时，可以设置
-`ModelResponse.Usage`：
+`ModelResponse.Usage` 或最终 `StreamEvent.Usage`：
 
 ```go
 return agent.ModelResponse{

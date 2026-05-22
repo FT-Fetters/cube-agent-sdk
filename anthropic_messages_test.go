@@ -232,6 +232,80 @@ func TestAnthropicMessagesModelParsesUsage(t *testing.T) {
 	}
 }
 
+func TestAnthropicMessagesModelStreamsDeltasDoneAndUsage(t *testing.T) {
+	var sawRequest bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawRequest = true
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("path = %q, want /v1/messages", r.URL.Path)
+		}
+		var payload anthropicMessagesRequestForTest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if !payload.Stream {
+			t.Fatalf("stream = false, want true")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "message_start", `{"type":"message_start","message":{"usage":{"input_tokens":17}}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"lo"}}`)
+		writeSSEEvent(t, w, "message_delta", `{"type":"message_delta","usage":{"output_tokens":9}}`)
+		writeSSEEvent(t, w, "message_stop", `{"type":"message_stop"}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if !sawRequest {
+		t.Fatal("server did not receive a request")
+	}
+	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26})
+}
+
+func TestAnthropicMessagesModelStreamEmitsProviderErrorWithDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "error", `{"type":"error","error":{"type":"overloaded_error","message":"provider secret payload"}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	assertProviderStreamError(t, got, ProviderDiagnostics{
+		Provider:     "anthropic-messages",
+		EndpointHost: server.Listener.Addr().String(),
+	}, ModelErrorSubcategoryUnknown)
+	if strings.Contains(got[0].Error.Error(), "provider secret payload") {
+		t.Fatalf("stream error exposed unsafe provider detail: %v", got[0].Error)
+	}
+}
+
 func TestAnthropicMessagesModelReturnsNon2xxErrorWithoutLeakingKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("x-api-key"); got != "test-key" {
@@ -327,6 +401,7 @@ type anthropicMessagesRequestForTest struct {
 	System    string                    `json:"system"`
 	Messages  []anthropicMessageForTest `json:"messages"`
 	Tools     []anthropicToolDefForTest `json:"tools"`
+	Stream    bool                      `json:"stream"`
 }
 
 type anthropicMessageForTest struct {

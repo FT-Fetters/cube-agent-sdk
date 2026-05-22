@@ -104,6 +104,109 @@ func TestBuiltInProviderNon2xxErrorsCarrySafeDiagnostics(t *testing.T) {
 	}
 }
 
+func TestBuiltInProviderStreamNon2xxErrorsCarrySafeDiagnostics(t *testing.T) {
+	tests := []struct {
+		name            string
+		provider        string
+		requestIDHeader string
+		newModel        func(string, string, *http.Client) (Model, error)
+	}{
+		{
+			name:            "openai-compatible",
+			provider:        "openai-compatible",
+			requestIDHeader: "X-Request-Id",
+			newModel: func(baseURL string, apiKey string, client *http.Client) (Model, error) {
+				return NewOpenAICompatibleModel(OpenAICompatibleConfig{
+					BaseURL:    baseURL,
+					APIKey:     apiKey,
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name:            "openai-responses",
+			provider:        "openai-responses",
+			requestIDHeader: "X-Request-Id",
+			newModel: func(baseURL string, apiKey string, client *http.Client) (Model, error) {
+				return NewOpenAIResponsesModel(OpenAIResponsesConfig{
+					BaseURL:    baseURL,
+					APIKey:     apiKey,
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name:            "anthropic-messages",
+			provider:        "anthropic-messages",
+			requestIDHeader: "Request-Id",
+			newModel: func(baseURL string, apiKey string, client *http.Client) (Model, error) {
+				return NewAnthropicMessagesModel(AnthropicMessagesConfig{
+					BaseURL:    baseURL,
+					APIKey:     apiKey,
+					Model:      "claude-test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const requestID = "provider-stream-request-123"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set(tt.requestIDHeader, requestID)
+				http.Error(w, `provider rejected secret-prompt test-key query-secret`, http.StatusUnauthorized)
+			}))
+			defer server.Close()
+
+			model, err := tt.newModel(server.URL+"?api_key=query-secret", "test-key", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			streamModel, ok := model.(StreamModel)
+			if !ok {
+				t.Fatalf("model = %T, want StreamModel", model)
+			}
+
+			stream, err := streamModel.Stream(context.Background(), ModelRequest{
+				SystemPrompt: "secret-prompt",
+				Messages:     []Message{{Role: RoleUser, Content: "secret-prompt"}},
+			})
+			if err == nil {
+				t.Fatal("Stream returned nil error, want provider error")
+			}
+			if stream != nil {
+				t.Fatalf("Stream events = %#v, want nil channel on non-2xx error", stream)
+			}
+
+			var providerErr *ProviderError
+			if !errors.As(err, &providerErr) {
+				t.Fatalf("err = %T, want *ProviderError", err)
+			}
+			want := ProviderDiagnostics{
+				Provider:     tt.provider,
+				HTTPStatus:   http.StatusUnauthorized,
+				EndpointHost: server.Listener.Addr().String(),
+				RequestID:    requestID,
+			}
+			if providerErr.Diagnostics != want {
+				t.Fatalf("provider diagnostics = %#v, want %#v", providerErr.Diagnostics, want)
+			}
+			got, ok := ProviderDiagnosticsFromError(err)
+			if !ok || got != want {
+				t.Fatalf("ProviderDiagnosticsFromError = %#v/%t, want %#v/true", got, ok, want)
+			}
+			gotSubcategory, ok := ModelErrorSubcategoryFromError(err)
+			if !ok || gotSubcategory != ModelErrorSubcategoryAuth {
+				t.Fatalf("ModelErrorSubcategoryFromError = %q/%t, want auth/true", gotSubcategory, ok)
+			}
+			assertProviderErrorStringIsSafe(t, err, "provider rejected", "secret-prompt", "test-key", "query-secret", "api_key=query-secret")
+		})
+	}
+}
+
 func TestBuiltInProviderNon2xxErrorsCarryDiagnosticResponseHeaders(t *testing.T) {
 	tests := []struct {
 		name       string

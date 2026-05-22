@@ -121,9 +121,15 @@ func (m *OpenAICompatibleModel) Generate(ctx context.Context, request ModelReque
 }
 
 type openAIChatCompletionRequest struct {
-	Model    string                     `json:"model"`
-	Messages []openAIChatMessage        `json:"messages"`
-	Tools    []openAIChatCompletionTool `json:"tools,omitempty"`
+	Model         string                             `json:"model"`
+	Messages      []openAIChatMessage                `json:"messages"`
+	Tools         []openAIChatCompletionTool         `json:"tools,omitempty"`
+	Stream        bool                               `json:"stream,omitempty"`
+	StreamOptions *openAIChatCompletionStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openAIChatCompletionStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 type openAIChatMessage struct {

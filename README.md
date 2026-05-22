@@ -155,8 +155,8 @@ The SDK provides:
 
 - Runtime abstractions: `Agent`, `Model`, `StreamModel`, `Tool`,
   `ApprovalPolicy`, `Hook`, `Observer`, `Compactor`, and session APIs.
-- OpenAI-compatible chat completions adapter.
-- OpenAI Responses API adapter.
+- OpenAI-compatible chat completions adapter with streaming support.
+- OpenAI Responses API adapter with streaming support.
 - Tool descriptor and JSON Schema subset for model-facing function calling.
 - Tool argument validation before local tool execution.
 - MCP stdio client and MCP-to-`Tool` bridge.
@@ -238,7 +238,8 @@ to Responses function tools, maps SDK tool calls to `function_call` items, and
 maps SDK tool results to `function_call_output` items. It preserves raw
 Responses output metadata on assistant messages so multi-round tool loops can
 replay reasoning and function-call context without using server-side response
-state. Set `MaxTokens` to send `max_output_tokens`, and set `Store` when your
+state. It also supports `RunStream` using Responses semantic streaming events.
+Set `MaxTokens` to send `max_output_tokens`, and set `Store` when your
 application needs explicit control over OpenAI's response storage setting.
 
 ## OpenAI-Compatible Models
@@ -263,7 +264,9 @@ bot, err := agent.New(agent.Config{
 ```
 
 The adapter maps SDK messages, tool descriptors, and tool calls to the
-OpenAI-compatible wire format. It does not manage provider accounts, API keys,
+OpenAI-compatible wire format. It also supports `RunStream` using chat
+completion SSE chunks and requests final stream usage when the provider supports
+`stream_options.include_usage`. It does not manage provider accounts, API keys,
 retries, rate limits, or network policy. Provide a custom `HTTPClient` when your
 application needs timeouts, proxies, tracing, or transport controls.
 
@@ -289,7 +292,8 @@ if err != nil {
 The adapter maps the SDK system prompt to the top-level `system` field, maps
 tools to Anthropic `tools` with `input_schema`, maps SDK tool calls to
 `tool_use` content blocks, and maps SDK tool results to `tool_result` user
-content blocks. The default Anthropic API version is `2023-06-01`; set
+content blocks. It also supports `RunStream` using Anthropic Messages SSE
+events. The default Anthropic API version is `2023-06-01`; set
 `AnthropicVersion` in `ModelConfig` or `AnthropicMessagesConfig` if your
 provider requires another version.
 
@@ -333,7 +337,9 @@ content.
 ## Streaming
 
 Models that support text deltas implement `StreamModel` in addition to `Model`.
-`RunStream` returns a channel of `StreamEvent` values.
+The built-in OpenAI-compatible, OpenAI Responses, and Anthropic Messages
+adapters implement `StreamModel`, so they can be passed directly to
+`RunStream`. `RunStream` returns a channel of `StreamEvent` values.
 
 ```go
 events, err := bot.RunStream(ctx, "Write a short summary.")
@@ -357,8 +363,10 @@ for event := range events {
 ```
 
 The SDK commits the final assistant message only after a done event. Interrupted
-delta streams do not persist partial assistant text. Streamed tool calls are
-reported with `ErrStreamingToolCallsUnsupported`.
+delta streams do not persist partial assistant text. Final done events carry
+provider token usage when the stream format reports it, and streaming
+observability copies that usage into `EventAfterModel`/`Observation.TokenUsage`.
+Streamed tool calls are reported with `ErrStreamingToolCallsUnsupported`.
 
 ## MCP Stdio
 

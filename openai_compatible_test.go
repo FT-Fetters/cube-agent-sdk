@@ -239,6 +239,77 @@ func TestOpenAICompatibleModelParsesUsage(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleModelStreamsDeltasDoneAndUsage(t *testing.T) {
+	var sawRequest bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawRequest = true
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		var payload openAIChatCompletionRequestForTest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if !payload.Stream {
+			t.Fatalf("stream = false, want true")
+		}
+		if payload.StreamOptions == nil || !payload.StreamOptions.IncludeUsage {
+			t.Fatalf("stream_options = %#v, want include_usage", payload.StreamOptions)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEData(t, w, `{"choices":[{"delta":{"role":"assistant","content":"Hel"}}],"usage":null}`)
+		writeSSEData(t, w, `{"choices":[{"delta":{"content":"lo"}}],"usage":null}`)
+		writeSSEData(t, w, `{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`)
+		writeSSEData(t, w, `[DONE]`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAICompatibleModel(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if !sawRequest {
+		t.Fatal("server did not receive a request")
+	}
+	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18})
+}
+
+func TestOpenAICompatibleModelStreamEmitsDecodeErrorWithDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEData(t, w, `{not-json`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAICompatibleModel(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	assertProviderStreamError(t, got, ProviderDiagnostics{
+		Provider:     "openai-compatible",
+		EndpointHost: server.Listener.Addr().String(),
+	}, ModelErrorSubcategoryDecodeError)
+}
+
 func TestOpenAICompatibleModelRejectsEmptyOrInvalidToolCallArguments(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -335,9 +406,11 @@ func TestNewOpenAICompatibleModelValidatesRequiredConfig(t *testing.T) {
 }
 
 type openAIChatCompletionRequestForTest struct {
-	Model    string                         `json:"model"`
-	Messages []openAIChatMessageForTest     `json:"messages"`
-	Tools    []openAIChatCompletionToolTest `json:"tools"`
+	Model         string                                    `json:"model"`
+	Messages      []openAIChatMessageForTest                `json:"messages"`
+	Tools         []openAIChatCompletionToolTest            `json:"tools"`
+	Stream        bool                                      `json:"stream"`
+	StreamOptions *openAIChatCompletionStreamOptionsForTest `json:"stream_options"`
 }
 
 type openAIChatMessageForTest struct {
@@ -366,6 +439,10 @@ type openAIChatToolFunctionForTest struct {
 	Parameters  map[string]any `json:"parameters"`
 }
 
+type openAIChatCompletionStreamOptionsForTest struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 func mapsEqual(got, want map[string]any) bool {
 	gotJSON, err := json.Marshal(got)
 	if err != nil {
@@ -384,4 +461,55 @@ func strconvQuote(value string) string {
 		panic(errors.New("failed to quote test string"))
 	}
 	return string(quoted)
+}
+
+func writeSSEData(t *testing.T, w io.Writer, data string) {
+	t.Helper()
+	if _, err := io.WriteString(w, "data: "+data+"\n\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeSSEEvent(t *testing.T, w io.Writer, event string, data string) {
+	t.Helper()
+	if _, err := io.WriteString(w, "event: "+event+"\n"+"data: "+data+"\n\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertProviderStreamSuccess(t *testing.T, events []StreamEvent, firstDelta string, secondDelta string, content string, usage TokenUsage) {
+	t.Helper()
+	if len(events) != 3 {
+		t.Fatalf("stream events = %#v, want delta, delta, done", events)
+	}
+	if events[0].Type != StreamEventDelta || events[0].Delta != firstDelta {
+		t.Fatalf("first stream event = %#v, want %q delta", events[0], firstDelta)
+	}
+	if events[1].Type != StreamEventDelta || events[1].Delta != secondDelta {
+		t.Fatalf("second stream event = %#v, want %q delta", events[1], secondDelta)
+	}
+	if events[2].Type != StreamEventDone {
+		t.Fatalf("done stream event = %#v, want done", events[2])
+	}
+	if events[2].Message.Role != RoleAssistant || events[2].Message.Content != content {
+		t.Fatalf("done message = %#v, want assistant %q", events[2].Message, content)
+	}
+	if events[2].Usage != usage {
+		t.Fatalf("done usage = %#v, want %#v", events[2].Usage, usage)
+	}
+}
+
+func assertProviderStreamError(t *testing.T, events []StreamEvent, diagnostics ProviderDiagnostics, subcategory ModelErrorSubcategory) {
+	t.Helper()
+	if len(events) != 1 || events[0].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want one error event", events)
+	}
+	gotDiagnostics, ok := ProviderDiagnosticsFromError(events[0].Error)
+	if !ok || gotDiagnostics != diagnostics {
+		t.Fatalf("provider diagnostics = %#v/%t, want %#v/true", gotDiagnostics, ok, diagnostics)
+	}
+	gotSubcategory, ok := ModelErrorSubcategoryFromError(events[0].Error)
+	if !ok || gotSubcategory != subcategory {
+		t.Fatalf("model error subcategory = %q/%t, want %q/true", gotSubcategory, ok, subcategory)
+	}
 }

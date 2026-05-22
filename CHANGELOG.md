@@ -18,6 +18,9 @@ release. Dates use ISO 8601 format.
 - Anthropic Messages adapter for `/v1/messages` endpoints.
 - Structured tool schemas and validation before tool execution.
 - Streaming model interface and agent streaming API.
+- Provider-native streaming for OpenAI-compatible chat completions, OpenAI
+  Responses, and Anthropic Messages adapters, including final usage telemetry
+  when providers report it.
 - Minimal MCP stdio client and tool bridge.
 - Session snapshot, restore, reset, and fork APIs.
 - Structured errors and enriched lifecycle event metadata.

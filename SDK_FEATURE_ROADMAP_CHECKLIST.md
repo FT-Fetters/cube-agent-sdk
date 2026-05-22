@@ -5,7 +5,7 @@
 
 ## Checklist
 
-- [ ] **1. 内置 provider 流式支持**
+- [x] **1. 内置 provider 流式支持**
   - 为 OpenAI-compatible、OpenAI Responses、Anthropic Messages 等内置适配器补充真实流式输出能力。
   - 验收目标：
     - 内置 provider 可直接用于 `RunStream`。
