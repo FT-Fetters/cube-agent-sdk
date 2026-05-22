@@ -1,0 +1,76 @@
+README.md
+  7356d394ecf58fc7 158-159,241-242,267-269,295-296,340-342,366-369
+docs/sdk/zh/observability.md
+  7356d394ecf58fc7 272-274
+examples/streaming/main.go
+  7356d394ecf58fc7 37
+docs/sdk/en/production.md
+  7356d394ecf58fc7 222-223
+openai_responses_test.go
+  7356d394ecf58fc7 261-330,433
+docs/sdk/zh/models.md
+  7356d394ecf58fc7 21-23,62-65,86-90,109-113,131
+internal/providers/openai/openai.go
+  7356d394ecf58fc7 124-132
+docs/sdk/zh/streaming.md
+  7356d394ecf58fc7 3-5,23,33,40-41,53-56
+agent_test.go
+  7356d394ecf58fc7 1673-1718
+docs/sdk/en/models.md
+  7356d394ecf58fc7 23-25,64-67,87-91,110-114,131-132
+docs/sdk/zh/production.md
+  7356d394ecf58fc7 196-197
+SDK_FEATURE_ROADMAP_CHECKLIST.md
+  7356d394ecf58fc7 8
+agent.go
+  7356d394ecf58fc7 713,726
+openai_compatible_test.go
+  7356d394ecf58fc7 242-312,409-413,442-443,465-514
+docs/sdk/en/streaming.md
+  7356d394ecf58fc7 3-6,23,33,40-44,54-58
+internal/core/types.go
+  7356d394ecf58fc7 67-68,74-76
+internal/providers/anthropic/anthropic.go
+  7356d394ecf58fc7 147
+internal/providers/anthropic/stream.go
+  7356d394ecf58fc7 1-203
+provider_diagnostics_test.go
+  7356d394ecf58fc7 107-209
+CHANGELOG.md
+  7356d394ecf58fc7 21-23
+internal/providers/openai/responses.go
+  7356d394ecf58fc7 123
+anthropic_messages_test.go
+  7356d394ecf58fc7 235-308,404
+internal/providers/openai/stream.go
+  7356d394ecf58fc7 1-300
+internal/providers/sse/sse.go
+  7356d394ecf58fc7 1-76
+docs/sdk/en/observability.md
+  7356d394ecf58fc7 292
+docs/sdk/en/README.md
+  7356d394ecf58fc7 37
+docs/sdk/zh/README.md
+  7356d394ecf58fc7 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "88082c750a456891744043be3f7fe89e3cd756f2",
+  "prompts": {
+    "7356d394ecf58fc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4e91-2667-7072-a01d-9004a91b2c6e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 2153,
+      "total_deletions": 83,
+      "accepted_lines": 2129,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/f1abd8dae67e93200b0154e9ffac2fe00ed3fa8d1532b9c70a9f8850831ccfab"
+    }
+  }
+}
