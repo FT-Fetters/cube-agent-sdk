@@ -216,6 +216,31 @@ log the provider request ID and HTTP status, then use the provider console or
 support workflow to inspect server-side details under the provider's access
 controls.
 
+## Model Reliability
+
+Use `NewReliableModel` at the model boundary when production traffic needs local
+timeout, retry, backoff, rate-limit, circuit-breaker, or budget controls. The
+wrapper does not expose prompts, messages, tool arguments, tool results, raw
+provider errors, credentials, or full provider URLs in `ReliabilityEvent`.
+Export only the safe fields on that event plus provider diagnostics.
+
+Recommended starting policy:
+
+- Set `WithReliablePerAttemptTimeout` below the provider or transport timeout.
+- Set `WithReliableTotalTimeout` to cap retries and backoff for one model call.
+- Keep `WithReliableMaxAttempts` small; the default retry classifier only
+  retries timeouts, HTTP 408/429, and 5xx provider diagnostics/subcategories.
+- Use `WithReliableRateLimit` and `WithReliableCircuitBreaker` to fail fast
+  during local overload or provider incidents.
+- Use `WithReliableTokenBudget` and `WithReliableCostBudget` as guardrails, not
+  accounting truth. Input tokens are estimated before each attempt, and exact
+  usage is applied only when the model reports usage.
+
+`ReliabilityEvent` types distinguish attempt starts, model attempt failures,
+retry scheduling, final failures, successes, budget rejections, rate rejections,
+and circuit rejections. Streaming wrappers apply these checks before stream
+startup and do not retry after deltas begin.
+
 ## Streaming and Tool Timing
 
 For streaming runs, final `EventAfterModel` observations carry total stream

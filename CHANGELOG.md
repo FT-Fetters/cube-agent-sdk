@@ -21,6 +21,8 @@ release. Dates use ISO 8601 format.
 - Provider-native streaming for OpenAI-compatible chat completions, OpenAI
   Responses, and Anthropic Messages adapters, including final usage telemetry
   when providers report it.
+- Composable reliable model wrapper for retries, timeouts, backoff, rate limits,
+  circuit breaking, token/cost budgets, and safe reliability events.
 - Minimal MCP stdio client and tool bridge.
 - Session snapshot, restore, reset, and fork APIs.
 - Structured errors and enriched lifecycle event metadata.

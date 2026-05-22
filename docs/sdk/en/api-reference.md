@@ -49,6 +49,26 @@ method-level details while keeping this page as a navigation aid.
 - `AnthropicMessagesConfig`
 - `AnthropicMessagesModel`
 
+## Model Reliability
+
+- `NewReliableModel`
+- `ReliableModelOption`
+- `WithReliableMaxAttempts`
+- `WithReliableBackoff`
+- `WithReliablePerAttemptTimeout`
+- `WithReliableTotalTimeout`
+- `WithReliableRateLimit`
+- `WithReliableCircuitBreaker`
+- `WithReliableTokenBudget`
+- `WithReliableCostBudget`
+- `WithReliableTokenCounter`
+- `WithReliabilityObserver`
+- `ReliableBackoffFunc`
+- `ReliabilityObserver`
+- `ReliabilityEvent`
+- `ReliabilityEventType`
+- `ReliabilityOperation`
+
 ## Tools and Schemas
 
 - `Tool`
@@ -264,3 +284,6 @@ results fall back to the default request ID format.
 - `ErrMCPToolNotFound`
 - `ErrSubagentNotFound`
 - `ErrModelAPIUnsupported`
+- `ErrReliableRateLimited`
+- `ErrReliableCircuitOpen`
+- `ErrReliableBudgetExceeded`

@@ -112,10 +112,44 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 `ModelResponse.Usage` 或最终 `StreamEvent.Usage`；如果 provider 没有报告 total，
 则由 input 和 output 相加得到。
 
+## 可靠性模型 Wrapper
+
+当应用需要在任意模型适配器外增加无依赖的可靠性控制时，使用 `NewReliableModel`。
+wrapper 支持最大尝试次数、单次尝试 timeout、总 timeout、自定义 backoff、固定窗口
+rate limit、circuit breaker、token budget、cost budget，以及安全的 `ReliabilityEvent`
+回调。
+
+```go
+model := agent.NewReliableModel(baseModel,
+	agent.WithReliableMaxAttempts(3),
+	agent.WithReliablePerAttemptTimeout(15*time.Second),
+	agent.WithReliableTotalTimeout(45*time.Second),
+	agent.WithReliableBackoff(func(attempt int) time.Duration {
+		return time.Duration(attempt) * time.Second
+	}),
+	agent.WithReliableRateLimit(60, time.Minute),
+	agent.WithReliableCircuitBreaker(5, time.Minute),
+	agent.WithReliableTokenBudget(200_000),
+	agent.WithReliableCostBudget(25, 0.01, 0.03),
+	agent.WithReliabilityObserver(func(ctx context.Context, event agent.ReliabilityEvent) {
+		// 只导出安全 event metadata。
+	}),
+)
+```
+
+默认 retry 分类是保守的：只 retry timeout、HTTP 408/429、以及 5xx provider
+diagnostics 或 model subcategory。bad request、auth failure、validation error、approval
+error、tool error 和其他不可重试类别默认不会 retry。
+
+如果被包装模型实现了 `StreamModel`，返回的 wrapper 也会实现 `StreamModel`。streaming
+可靠性会在 stream start 前执行检查，并可 retry 安全的启动失败；delta 开始后不会重放
+stream。token budget 在尝试前使用 estimated input tokens，并在存在
+`ModelResponse.Usage` 或最终 `StreamEvent.Usage` 时进行校正；cost budget 使用调用方提供的
+每 1K token 价格。
+
 ## 自定义模型
 
-当应用需要内置适配器没有覆盖的 provider、重试策略、日志契约或传输行为时，
-实现 `Model`。
+当应用需要内置适配器没有覆盖的 provider、日志契约或传输行为时，实现 `Model`。
 
 ```go
 type retryingModel struct {

@@ -113,10 +113,47 @@ events. When Anthropic returns `usage.input_tokens` and `usage.output_tokens`,
 the adapter maps them to `ModelResponse.Usage` or final `StreamEvent.Usage` and
 derives the total when the provider does not report one.
 
+## Reliable Model Wrappers
+
+Use `NewReliableModel` when an application wants dependency-free reliability
+controls around any model adapter. The wrapper supports max attempts, per-attempt
+timeout, total timeout, custom backoff, fixed-window rate limiting, circuit
+breaking, token budgets, cost budgets, and a safe `ReliabilityEvent` callback.
+
+```go
+model := agent.NewReliableModel(baseModel,
+	agent.WithReliableMaxAttempts(3),
+	agent.WithReliablePerAttemptTimeout(15*time.Second),
+	agent.WithReliableTotalTimeout(45*time.Second),
+	agent.WithReliableBackoff(func(attempt int) time.Duration {
+		return time.Duration(attempt) * time.Second
+	}),
+	agent.WithReliableRateLimit(60, time.Minute),
+	agent.WithReliableCircuitBreaker(5, time.Minute),
+	agent.WithReliableTokenBudget(200_000),
+	agent.WithReliableCostBudget(25, 0.01, 0.03),
+	agent.WithReliabilityObserver(func(ctx context.Context, event agent.ReliabilityEvent) {
+		// Export safe event metadata only.
+	}),
+)
+```
+
+Default retry classification is conservative: timeouts, HTTP 408/429, and 5xx
+provider diagnostics or model subcategories are retried. Bad requests, auth
+failures, validation errors, approval errors, tool errors, and other
+non-retryable categories are not retried by default.
+
+When the wrapped model implements `StreamModel`, the returned wrapper also
+implements `StreamModel`. Streaming reliability applies checks before stream
+start and can retry safe startup failures, but it does not retry after deltas
+have started. Token budgets use estimated input tokens before attempts and
+reconcile with `ModelResponse.Usage` or final `StreamEvent.Usage` when present;
+cost budgets use caller-provided per-1K-token prices.
+
 ## Custom Models
 
-Implement `Model` when an application needs a provider, retry policy, logging
-contract, or transport behavior that is not built in.
+Implement `Model` when an application needs a provider, logging contract, or
+transport behavior that is not built in.
 
 ```go
 type retryingModel struct {

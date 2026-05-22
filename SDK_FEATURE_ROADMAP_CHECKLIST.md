@@ -13,7 +13,7 @@
     - 流式 token usage、首 token 延迟和错误诊断能进入现有 observability 体系。
     - 对不支持流式的 provider 或模型返回明确错误。
 
-- [ ] **2. 模型调用可靠性中间件**
+- [x] **2. 模型调用可靠性中间件**
   - 提供可组合的模型 wrapper，用于 timeout、retry、backoff、rate limit、circuit breaker 和 token/cost budget 控制。
   - 验收目标：
     - 用户可通过标准 wrapper 包装任意 `Model` 或 `StreamModel`。

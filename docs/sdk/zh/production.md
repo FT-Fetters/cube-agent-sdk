@@ -190,6 +190,28 @@ model error subcategory、tool risk、provider name、HTTP status 和 tool timin
 credentials 或完整 provider URLs。事故响应时，记录 provider request ID 和 HTTP status，
 再通过 provider console 或支持流程，在 provider 的访问控制下查看服务端详情。
 
+## 模型可靠性
+
+生产流量需要本地 timeout、retry、backoff、rate limit、circuit breaker 或预算控制时，
+在模型边界使用 `NewReliableModel`。wrapper 的 `ReliabilityEvent` 不包含 prompt、message、
+tool arguments、tool results、原始 provider 错误、credentials 或完整 provider URL。只导出该
+event 的安全字段和 provider diagnostics。
+
+推荐起点：
+
+- `WithReliablePerAttemptTimeout` 应低于 provider 或 transport timeout。
+- `WithReliableTotalTimeout` 用于限制单次模型调用的 retries 和 backoff 总耗时。
+- `WithReliableMaxAttempts` 保持较小；默认 retry 分类只 retry timeout、HTTP 408/429、
+  以及 5xx provider diagnostics/subcategories。
+- 使用 `WithReliableRateLimit` 和 `WithReliableCircuitBreaker` 在本地过载或 provider
+  incident 时快速失败。
+- 使用 `WithReliableTokenBudget` 和 `WithReliableCostBudget` 作为 guardrail，而不是精确
+  accounting。input tokens 会在每次尝试前估算，只有模型报告 usage 时才会应用精确 usage。
+
+`ReliabilityEvent` type 能区分 attempt start、模型 attempt failure、retry scheduled、
+final failure、success、budget rejection、rate rejection 和 circuit rejection。streaming
+wrapper 会在 stream start 前应用这些检查；delta 开始后不会 retry。
+
 ## 流式输出和工具耗时
 
 对于 streaming runs，最终 `EventAfterModel` observation 会把总 stream duration 放在

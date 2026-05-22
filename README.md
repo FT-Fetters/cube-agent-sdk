@@ -163,6 +163,8 @@ The SDK provides:
 - Session snapshot, restore, reset, and fork APIs.
 - Approval policy helpers with tool-name and risk allowlists.
 - Sanitized observations and structured lifecycle events.
+- Composable model reliability wrappers for retry, timeout, rate, circuit, and
+  budget controls.
 - Stable telemetry attribute and metric label names for logs, metrics, and
   traces.
 - Custom request ID generation from safe lifecycle metadata for application
@@ -367,6 +369,36 @@ delta streams do not persist partial assistant text. Final done events carry
 provider token usage when the stream format reports it, and streaming
 observability copies that usage into `EventAfterModel`/`Observation.TokenUsage`.
 Streamed tool calls are reported with `ErrStreamingToolCallsUnsupported`.
+
+## Reliable Model Wrappers
+
+Wrap any `Model` with `NewReliableModel` to add local reliability controls
+without changing the `Agent` API. If the wrapped model implements `StreamModel`,
+the returned wrapper also supports streaming. Streaming retries only cover stream
+startup; once deltas begin, the wrapper does not replay the stream.
+
+```go
+model := agent.NewReliableModel(baseModel,
+	agent.WithReliableMaxAttempts(3),
+	agent.WithReliablePerAttemptTimeout(15*time.Second),
+	agent.WithReliableTotalTimeout(45*time.Second),
+	agent.WithReliableBackoff(func(attempt int) time.Duration {
+		return time.Duration(attempt) * time.Second
+	}),
+	agent.WithReliableRateLimit(60, time.Minute),
+	agent.WithReliableCircuitBreaker(5, time.Minute),
+	agent.WithReliableTokenBudget(200_000),
+	agent.WithReliableCostBudget(25, 0.01, 0.03),
+	agent.WithReliabilityObserver(func(ctx context.Context, event agent.ReliabilityEvent) {
+		// Export only event fields; they do not contain prompts or raw errors.
+	}),
+)
+```
+
+By default, retries are limited to safe retryable model failures such as
+timeouts, HTTP 408/429, and 5xx provider diagnostics or subcategories. Bad
+requests, auth failures, validation errors, approval errors, tool errors, and
+other non-retryable categories are not retried by default.
 
 ## MCP Stdio
 

@@ -49,6 +49,26 @@
 - `AnthropicMessagesConfig`
 - `AnthropicMessagesModel`
 
+## 模型可靠性
+
+- `NewReliableModel`
+- `ReliableModelOption`
+- `WithReliableMaxAttempts`
+- `WithReliableBackoff`
+- `WithReliablePerAttemptTimeout`
+- `WithReliableTotalTimeout`
+- `WithReliableRateLimit`
+- `WithReliableCircuitBreaker`
+- `WithReliableTokenBudget`
+- `WithReliableCostBudget`
+- `WithReliableTokenCounter`
+- `WithReliabilityObserver`
+- `ReliableBackoffFunc`
+- `ReliabilityObserver`
+- `ReliabilityEvent`
+- `ReliabilityEventType`
+- `ReliabilityOperation`
+
 ## 工具和 Schemas
 
 - `Tool`
@@ -260,3 +280,6 @@ request ID、tool name 和 subagent ID。生成器返回空值时会回退到默
 - `ErrMCPToolNotFound`
 - `ErrSubagentNotFound`
 - `ErrModelAPIUnsupported`
+- `ErrReliableRateLimited`
+- `ErrReliableCircuitOpen`
+- `ErrReliableBudgetExceeded`
