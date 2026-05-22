@@ -44,6 +44,16 @@ if err != nil {
 	return err
 }
 
+for i, tool := range tools {
+	tools[i] = agent.ToolWithSafety(tool, agent.ToolSafety{
+		Risk:           agent.ToolRiskRead,
+		Timeout:        2 * time.Second,
+		MaxConcurrency: 4,
+		MaxResultBytes: 8192,
+		Scopes:         []agent.ToolScope{{Kind: "mcp_server", Value: "filesystem-readonly"}},
+	})
+}
+
 bot, err := agent.New(cfg, model,
 	agent.WithTools(tools...),
 	agent.WithApprovalPolicy(agent.AllowToolsApproval("read_file")),

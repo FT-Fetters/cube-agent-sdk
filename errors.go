@@ -25,7 +25,7 @@ func classifyError(err error) ErrorCategory {
 		return ErrorCategoryStreaming
 	case errors.Is(err, ErrSessionNotFound), errors.Is(err, ErrSessionVersionMismatch), errors.Is(err, ErrSessionInvalidRecord), errors.Is(err, ErrSessionEventConflict):
 		return ErrorCategorySession
-	case errors.Is(err, ErrToolNotFound), errors.Is(err, ErrMaxToolRoundsExceeded):
+	case errors.Is(err, ErrToolNotFound), errors.Is(err, ErrMaxToolRoundsExceeded), errors.Is(err, ErrToolConcurrencyLimitExceeded), errors.Is(err, ErrToolResultTooLarge):
 		return ErrorCategoryTool
 	default:
 		return ""

@@ -49,6 +49,15 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 		ApprovalReason:        "allowed by policy",
 		ErrorCategory:         ErrorCategoryTool,
 		Failed:                true,
+		ToolSafety: ToolSafetyMetadata{
+			TimeoutConfigured:  true,
+			Timeout:            500 * time.Millisecond,
+			MaxConcurrency:     2,
+			MaxResultBytes:     1024,
+			ScopeCount:         1,
+			ScopeHash:          "sha256:slog-scope-hash",
+			BusinessReasonHash: "sha256:slog-reason-hash",
+		},
 	}, "sha256:slog-schema-hash")
 	observation = observationWithToolLifecycleTiming(t, observation, 10*time.Millisecond, 20*time.Millisecond, 30*time.Millisecond)
 
@@ -87,6 +96,13 @@ func TestSlogObserverEmitsStructuredObservationAttributes(t *testing.T) {
 	assertSlogField(t, timing, "validation_ms", float64(10))
 	assertSlogField(t, timing, "approval_ms", float64(20))
 	assertSlogField(t, timing, "execution_ms", float64(30))
+	assertSlogField(t, tool, "timeout_configured", true)
+	assertSlogField(t, tool, "timeout_ms", float64(500))
+	assertSlogField(t, tool, "max_concurrency", float64(2))
+	assertSlogField(t, tool, "max_result_bytes", float64(1024))
+	assertSlogField(t, tool, "scope_count", float64(1))
+	assertSlogField(t, tool, "scope_hash", "sha256:slog-scope-hash")
+	assertSlogField(t, tool, "business_reason_hash", "sha256:slog-reason-hash")
 
 	approval := assertSlogGroup(t, record, "approval")
 	assertSlogField(t, approval, "approved", true)
@@ -118,8 +134,17 @@ func TestSlogObserverEmitsStableTelemetryAttributeNames(t *testing.T) {
 		Duration:        25 * time.Millisecond,
 		ToolName:        "lookup",
 		ToolRisk:        ToolRiskRead,
-		ErrorCategory:   ErrorCategoryTool,
-		Failed:          true,
+		ToolSafety: ToolSafetyMetadata{
+			TimeoutConfigured:  true,
+			Timeout:            25 * time.Millisecond,
+			MaxConcurrency:     3,
+			MaxResultBytes:     4096,
+			ScopeCount:         2,
+			ScopeHash:          "sha256:stable-scope-hash",
+			BusinessReasonHash: "sha256:stable-reason-hash",
+		},
+		ErrorCategory: ErrorCategoryTool,
+		Failed:        true,
 		ProviderDiagnostics: ProviderDiagnostics{
 			Provider:     "openai-compatible",
 			HTTPStatus:   429,
@@ -140,6 +165,13 @@ func TestSlogObserverEmitsStableTelemetryAttributeNames(t *testing.T) {
 	assertSlogField(t, record, TelemetryAttrDurationMS, float64(25))
 	assertSlogField(t, record, TelemetryAttrToolName, "lookup")
 	assertSlogField(t, record, TelemetryAttrToolRisk, string(ToolRiskRead))
+	assertSlogField(t, record, TelemetryAttrToolTimeoutConfigured, true)
+	assertSlogField(t, record, TelemetryAttrToolTimeoutMS, float64(25))
+	assertSlogField(t, record, TelemetryAttrToolMaxConcurrency, float64(3))
+	assertSlogField(t, record, TelemetryAttrToolMaxResultBytes, float64(4096))
+	assertSlogField(t, record, TelemetryAttrToolScopeCount, float64(2))
+	assertSlogField(t, record, TelemetryAttrToolScopeHash, "sha256:stable-scope-hash")
+	assertSlogField(t, record, TelemetryAttrToolBusinessReasonHash, "sha256:stable-reason-hash")
 	assertSlogField(t, record, TelemetryAttrErrorCategory, string(ErrorCategoryTool))
 	assertSlogField(t, record, TelemetryAttrProviderName, "openai-compatible")
 	assertSlogField(t, record, TelemetryAttrProviderHTTPStatus, float64(429))

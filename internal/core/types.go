@@ -2,8 +2,12 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"math"
 	"net/url"
 	"reflect"
@@ -536,6 +540,33 @@ const (
 	ToolRiskDestructive ToolRisk = "destructive"
 )
 
+// ToolScope binds a tool to an application-defined security boundary. Values
+// can be sensitive, such as filesystem roots or tenant identifiers; lifecycle
+// telemetry exposes only counts and hashes derived from scopes.
+type ToolScope struct {
+	Kind  string
+	Value string
+}
+
+// ToolSafety declares local guardrails and approval context for a tool.
+// Timeouts, concurrency limits, and result limits are enforced by the SDK.
+// Scopes and BusinessReason are passed to approval policies, but observations
+// receive only non-sensitive hashes and counts.
+type ToolSafety struct {
+	Risk           ToolRisk
+	Timeout        time.Duration
+	MaxConcurrency int
+	MaxResultBytes int
+	Scopes         []ToolScope
+	BusinessReason string
+}
+
+// ToolSafetyProvider is an optional extension for tools that declare execution
+// limits, scopes, or business approval context.
+type ToolSafetyProvider interface {
+	ToolSafety() ToolSafety
+}
+
 // ToolCall is a model request to execute a tool.
 type ToolCall struct {
 	ID        string
@@ -574,6 +605,7 @@ type ToolFunc struct {
 	ToolDescription string
 	Parameters      *schema.ToolParametersSchema
 	ToolRisk        ToolRisk
+	Safety          ToolSafety
 	Fn              func(context.Context, ToolCall) (ToolResult, error)
 }
 
@@ -590,7 +622,15 @@ func (t ToolFunc) ParametersSchema() *schema.ToolParametersSchema {
 }
 
 func (t ToolFunc) Risk() ToolRisk {
-	return t.ToolRisk
+	return t.ToolSafety().Risk
+}
+
+func (t ToolFunc) ToolSafety() ToolSafety {
+	safety := CloneToolSafety(t.Safety)
+	if safety.Risk == "" {
+		safety.Risk = normalizeToolRisk(t.ToolRisk)
+	}
+	return safety
 }
 
 func (t ToolFunc) Call(ctx context.Context, call ToolCall) (ToolResult, error) {
@@ -605,7 +645,12 @@ type ApprovalRequest struct {
 	AgentID  string
 	ToolName string
 	Risk     ToolRisk
-	ToolCall ToolCall
+	// ToolSafety includes the registered tool's limits, scopes, and business
+	// reason so approval policies can enforce application-specific boundaries.
+	// ToolCall can still contain sensitive arguments; approval implementations
+	// should avoid logging raw requests.
+	ToolSafety ToolSafety
+	ToolCall   ToolCall
 }
 
 // ApprovalDecision is the result of a permission check.
@@ -786,6 +831,8 @@ type Event struct {
 	EstimatedTokens int
 	// ToolTiming reports validation, approval, and execution timing for after-tool events.
 	ToolTiming ToolLifecycleTiming
+	// ToolSafety carries non-sensitive tool limit and scope audit metadata.
+	ToolSafety ToolSafetyMetadata
 	// TokenUsage reports provider or custom-model token counts when available.
 	TokenUsage            TokenUsage
 	StreamTelemetry       StreamTelemetry
@@ -867,6 +914,24 @@ func (m ToolResultMetadata) isZero() bool {
 	return m.ContentBytes == 0 && len(m.MetadataKeys) == 0 && m.MCPIsError == nil
 }
 
+// ToolSafetyMetadata contains non-sensitive audit metadata derived from
+// ToolSafety. It never includes raw scope values or business reasons.
+type ToolSafetyMetadata struct {
+	TimeoutConfigured  bool
+	Timeout            time.Duration
+	MaxConcurrency     int
+	MaxResultBytes     int
+	ScopeCount         int
+	ScopeHash          string
+	BusinessReasonHash string
+}
+
+func (m ToolSafetyMetadata) isZero() bool {
+	return !m.TimeoutConfigured && m.Timeout == 0 && m.MaxConcurrency == 0 &&
+		m.MaxResultBytes == 0 && m.ScopeCount == 0 && m.ScopeHash == "" &&
+		m.BusinessReasonHash == ""
+}
+
 // Observation is a safe telemetry view of an Event. It intentionally omits
 // message content, tool arguments, tool result content, tool result metadata
 // values, raw errors, and MCP settings.
@@ -893,6 +958,8 @@ type Observation struct {
 	// ToolTiming reports safe validation, approval, and execution durations for
 	// after-tool observations. Duration keeps its total lifecycle meaning.
 	ToolTiming ToolLifecycleTiming
+	// ToolSafety reports non-sensitive tool guardrail and scope metadata.
+	ToolSafety ToolSafetyMetadata
 	// TokenUsage reports sanitized real token counts when a model reports them.
 	TokenUsage TokenUsage
 	// StreamTelemetry reports sanitized counters and durations for streaming runs.
@@ -931,6 +998,7 @@ func ObservationFromEvent(event Event) Observation {
 		Duration:              event.Duration,
 		EstimatedTokens:       event.EstimatedTokens,
 		ToolTiming:            event.ToolTiming,
+		ToolSafety:            normalizeToolSafetyMetadata(event.ToolSafety),
 		TokenUsage:            event.TokenUsage,
 		StreamTelemetry:       event.StreamTelemetry,
 		ProviderDiagnostics:   normalizeProviderDiagnostics(event.ProviderDiagnostics),
@@ -984,6 +1052,125 @@ func mcpIsErrorFromToolResultMetadata(metadata map[string]any) *bool {
 		return nil
 	}
 	return &isError
+}
+
+// CloneToolSafety returns a normalized deep copy of safety.
+func CloneToolSafety(safety ToolSafety) ToolSafety {
+	return normalizeToolSafety(safety)
+}
+
+// ToolSafetyMetadataFromSafety derives safe audit metadata from a tool safety
+// policy without exposing raw scope values or business reasons.
+func ToolSafetyMetadataFromSafety(safety ToolSafety) ToolSafetyMetadata {
+	safety = normalizeToolSafety(safety)
+	metadata := ToolSafetyMetadata{
+		TimeoutConfigured: safety.Timeout > 0,
+		Timeout:           safety.Timeout,
+		MaxConcurrency:    safety.MaxConcurrency,
+		MaxResultBytes:    safety.MaxResultBytes,
+		ScopeCount:        len(safety.Scopes),
+	}
+	if len(safety.Scopes) > 0 {
+		metadata.ScopeHash = hashToolScopes(safety.Scopes)
+	}
+	if safety.BusinessReason != "" {
+		metadata.BusinessReasonHash = hashToolSafetyStrings("business_reason", safety.BusinessReason)
+	}
+	return normalizeToolSafetyMetadata(metadata)
+}
+
+func normalizeToolSafety(safety ToolSafety) ToolSafety {
+	safety.Risk = normalizeToolRisk(safety.Risk)
+	if safety.Timeout < 0 {
+		safety.Timeout = 0
+	}
+	if safety.MaxConcurrency < 0 {
+		safety.MaxConcurrency = 0
+	}
+	if safety.MaxResultBytes < 0 {
+		safety.MaxResultBytes = 0
+	}
+	safety.BusinessReason = strings.TrimSpace(safety.BusinessReason)
+	if len(safety.Scopes) > 0 {
+		scopes := make([]ToolScope, 0, len(safety.Scopes))
+		for _, scope := range safety.Scopes {
+			scope.Kind = strings.TrimSpace(scope.Kind)
+			scope.Value = strings.TrimSpace(scope.Value)
+			if scope.Kind == "" && scope.Value == "" {
+				continue
+			}
+			scopes = append(scopes, scope)
+		}
+		safety.Scopes = scopes
+	}
+	return safety
+}
+
+func normalizeToolRisk(risk ToolRisk) ToolRisk {
+	return ToolRisk(strings.TrimSpace(string(risk)))
+}
+
+func normalizeToolSafetyMetadata(metadata ToolSafetyMetadata) ToolSafetyMetadata {
+	if metadata.Timeout < 0 {
+		metadata.Timeout = 0
+	}
+	if metadata.Timeout == 0 {
+		metadata.TimeoutConfigured = false
+	}
+	if metadata.MaxConcurrency < 0 {
+		metadata.MaxConcurrency = 0
+	}
+	if metadata.MaxResultBytes < 0 {
+		metadata.MaxResultBytes = 0
+	}
+	if metadata.ScopeCount < 0 {
+		metadata.ScopeCount = 0
+	}
+	metadata.ScopeHash = strings.TrimSpace(metadata.ScopeHash)
+	metadata.BusinessReasonHash = strings.TrimSpace(metadata.BusinessReasonHash)
+	if metadata.ScopeCount == 0 {
+		metadata.ScopeHash = ""
+	}
+	return metadata
+}
+
+func hashToolScopes(scopes []ToolScope) string {
+	scopes = append([]ToolScope(nil), scopes...)
+	sort.Slice(scopes, func(i, j int) bool {
+		if scopes[i].Kind == scopes[j].Kind {
+			return scopes[i].Value < scopes[j].Value
+		}
+		return scopes[i].Kind < scopes[j].Kind
+	})
+	hasher := sha256.New()
+	writeToolSafetyHashString(hasher, "cube-agent-sdk-tool-safety-v1")
+	writeToolSafetyHashString(hasher, "scopes")
+	writeToolSafetyHashUint64(hasher, uint64(len(scopes)))
+	for _, scope := range scopes {
+		writeToolSafetyHashString(hasher, scope.Kind)
+		writeToolSafetyHashString(hasher, scope.Value)
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+}
+
+func hashToolSafetyStrings(parts ...string) string {
+	hasher := sha256.New()
+	writeToolSafetyHashString(hasher, "cube-agent-sdk-tool-safety-v1")
+	for _, part := range parts {
+		writeToolSafetyHashString(hasher, part)
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+}
+
+func writeToolSafetyHashString(hasher hash.Hash, value string) {
+	writeToolSafetyHashUint64(hasher, uint64(len(value)))
+	_, _ = hasher.Write([]byte(value))
+}
+
+func writeToolSafetyHashUint64(hasher hash.Hash, value uint64) {
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], value)
+	_, _ = hasher.Write(buffer[:])
 }
 
 // CloneMessages returns a deep copy of a message slice.

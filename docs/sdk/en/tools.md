@@ -11,6 +11,11 @@ lookup := agent.ToolFunc{
 	ToolName:        "lookup_account",
 	ToolDescription: "Read account status",
 	ToolRisk:        agent.ToolRiskRead,
+	Safety: agent.ToolSafety{
+		Timeout:        2 * time.Second,
+		MaxConcurrency: 8,
+		MaxResultBytes: 4096,
+	},
 	Parameters: &agent.ToolParametersSchema{
 		Type:     agent.SchemaTypeObject,
 		Required: []string{"account_id"},
@@ -50,6 +55,7 @@ Optional extensions:
 
 - `ParametersSchema() *ToolParametersSchema`
 - `Risk() ToolRisk`
+- `ToolSafety() ToolSafety`
 
 ## Schema Support
 
@@ -90,6 +96,31 @@ Supported tags are `json`, `description`, `required`, `enum`, `default`, `min`,
 slices, arrays, primitive scalar types, and omitted fields with `json:"-"`.
 Maps, interfaces, functions, channels, full JSON Schema composition, and default
 argument injection are intentionally outside this subset.
+
+## Tool Safety
+
+`ToolSafety` lets each tool declare SDK-enforced guardrails and approval context:
+
+- `Risk`: read, write, destructive, or unspecified risk. `ToolFunc.ToolRisk` remains supported; `Safety.Risk` is useful when all tool safety settings live together.
+- `Timeout`: maximum wall-clock time for one tool call. The SDK passes a deadline context and returns `context.DeadlineExceeded` if the call does not finish in time.
+- `MaxConcurrency`: maximum concurrent executions for the tool on one `Agent`; excess calls fail with `ErrToolConcurrencyLimitExceeded`.
+- `MaxResultBytes`: maximum `ToolResult.Content` byte length; oversized successful results fail with `ErrToolResultTooLarge` before being appended to agent context.
+- `Scopes`: application-defined security boundaries such as tenant, filesystem root, or downstream service scope. Scope values are passed to approval policies but appear in telemetry only as count and hash.
+- `BusinessReason`: an application-defined reason or ticket identifier for approving side effects. Observations contain only a hash.
+
+For tools from MCP clients or other libraries, wrap the tool instead of rewriting it:
+
+```go
+for i, tool := range tools {
+	tools[i] = agent.ToolWithSafety(tool, agent.ToolSafety{
+		Risk:           agent.ToolRiskRead,
+		Timeout:        2 * time.Second,
+		MaxConcurrency: 4,
+		MaxResultBytes: 8192,
+		Scopes:         []agent.ToolScope{{Kind: "mcp_server", Value: "filesystem-readonly"}},
+	})
+}
+```
 
 ## Risk Labels
 

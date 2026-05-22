@@ -594,6 +594,7 @@ func TestObservationStableTelemetryAttributeContractCoversFields(t *testing.T) {
 		"Duration":              {TelemetryAttrDurationMS},
 		"EstimatedTokens":       {TelemetryAttrEstimatedTokens},
 		"ToolTiming":            {TelemetryAttrToolTimingValidationMS, TelemetryAttrToolTimingApprovalMS, TelemetryAttrToolTimingExecutionMS},
+		"ToolSafety":            {TelemetryAttrToolTimeoutConfigured, TelemetryAttrToolTimeoutMS, TelemetryAttrToolMaxConcurrency, TelemetryAttrToolMaxResultBytes, TelemetryAttrToolScopeCount, TelemetryAttrToolScopeHash, TelemetryAttrToolBusinessReasonHash},
 		"TokenUsage":            {TelemetryAttrTokensInput, TelemetryAttrTokensOutput, TelemetryAttrTokensTotal},
 		"StreamTelemetry":       {TelemetryAttrStreamTimeToFirstTokenMS, TelemetryAttrStreamDeltaCount, TelemetryAttrStreamByteCount, TelemetryAttrStreamThroughputBytesPerSec},
 		"ProviderDiagnostics":   {TelemetryAttrProviderName, TelemetryAttrProviderHTTPStatus, TelemetryAttrProviderEndpointHost, TelemetryAttrProviderRequestID, TelemetryAttrProviderRetryAfter, TelemetryAttrProviderRateLimitLimit, TelemetryAttrProviderRateLimitRemaining, TelemetryAttrProviderRateLimitReset},
@@ -638,6 +639,8 @@ func TestObservationForbiddenTelemetryContractCoversSensitiveEventClasses(t *tes
 		"credentials",
 		"full_provider_urls",
 		"mcp_environment_values",
+		"tool_scope_values",
+		"tool_business_reasons",
 	} {
 		if _, ok := forbidden[name]; !ok {
 			t.Fatalf("ForbiddenTelemetryFieldNames missing %q", name)

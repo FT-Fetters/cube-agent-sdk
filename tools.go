@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/cubence/cube-agent-sdk/internal/core"
 )
 
 var (
-	ErrApprovalDenied        = errors.New("agent: approval denied")
-	ErrMaxToolRoundsExceeded = errors.New("agent: max tool rounds exceeded")
-	ErrToolNotFound          = errors.New("agent: tool not found")
+	ErrApprovalDenied               = errors.New("agent: approval denied")
+	ErrMaxToolRoundsExceeded        = errors.New("agent: max tool rounds exceeded")
+	ErrToolNotFound                 = errors.New("agent: tool not found")
+	ErrToolConcurrencyLimitExceeded = errors.New("agent: tool concurrency limit exceeded")
+	ErrToolResultTooLarge           = errors.New("agent: tool result too large")
 )
 
 func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, parentRequestID string) (ToolResult, error) {
@@ -38,9 +42,11 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		wrapped.RequestID = requestID
 		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
-		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, ToolRiskUnspecified, "", timing, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, ToolRiskUnspecified, "", ToolSafetyMetadata{}, timing, wrapped)
 	}
-	risk := toolRisk(tool)
+	safety := toolSafety(tool)
+	risk := safety.Risk
+	safetyMetadata := toolSafetyMetadata(safety)
 	parameters := toolParametersSchema(tool)
 	toolSchemaHash := toolSchemaHashForTool(tool, parameters, risk)
 
@@ -53,7 +59,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		wrapped.RequestID = requestID
 		wrapped.ParentRequestID = parentRequestID
 		wrapped.Round = round
-		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, risk, toolSchemaHash, timing, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, risk, toolSchemaHash, safetyMetadata, timing, wrapped)
 	}
 	timing.Validation = eventDurationSince(validationStarted)
 
@@ -62,6 +68,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		ToolSchemaHash:  toolSchemaHash,
+		ToolSafety:      safetyMetadata,
 		RequestID:       requestID,
 		ParentRequestID: parentRequestID,
 		Round:           round,
@@ -72,10 +79,11 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 	}
 	approvalStarted := time.Now()
 	decision, err := approval.ApproveTool(ctx, ApprovalRequest{
-		AgentID:  agentID,
-		ToolName: call.Name,
-		Risk:     risk,
-		ToolCall: cloneToolCall(call),
+		AgentID:    agentID,
+		ToolName:   call.Name,
+		Risk:       risk,
+		ToolSafety: cloneToolSafety(safety),
+		ToolCall:   cloneToolCall(call),
 	})
 	timing.Approval = eventDurationSince(approvalStarted)
 	if err != nil {
@@ -90,6 +98,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 			ToolName:        call.Name,
 			ToolRisk:        risk,
 			ToolSchemaHash:  toolSchemaHash,
+			ToolSafety:      safetyMetadata,
 			RequestID:       requestID,
 			ParentRequestID: parentRequestID,
 			Round:           round,
@@ -102,7 +111,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		}); emitErr != nil {
 			return ToolResult{}, emitErr
 		}
-		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, risk, toolSchemaHash, timing, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, risk, toolSchemaHash, safetyMetadata, timing, wrapped)
 	}
 	decision = normalizeApprovalDecision(decision)
 	if !decision.Approved {
@@ -118,6 +127,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 			ToolName:        call.Name,
 			ToolRisk:        risk,
 			ToolSchemaHash:  toolSchemaHash,
+			ToolSafety:      safetyMetadata,
 			RequestID:       requestID,
 			ParentRequestID: parentRequestID,
 			Round:           round,
@@ -130,13 +140,14 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		}); emitErr != nil {
 			return ToolResult{}, emitErr
 		}
-		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, risk, toolSchemaHash, timing, wrapped)
+		return a.failTool(ctx, call, requestID, parentRequestID, round, started, estimatedTokens, risk, toolSchemaHash, safetyMetadata, timing, wrapped)
 	}
 	if err := a.emit(ctx, Event{
 		Type:            EventAfterApproval,
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		ToolSchemaHash:  toolSchemaHash,
+		ToolSafety:      safetyMetadata,
 		RequestID:       requestID,
 		ParentRequestID: parentRequestID,
 		Round:           round,
@@ -154,6 +165,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		ToolSchemaHash:  toolSchemaHash,
+		ToolSafety:      safetyMetadata,
 		RequestID:       requestID,
 		ParentRequestID: parentRequestID,
 		Round:           round,
@@ -163,13 +175,16 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		return ToolResult{}, err
 	}
 	executionStarted := time.Now()
-	result, err := tool.Call(ctx, cloneToolCall(call))
+	result, err := a.callTool(ctx, tool, cloneToolCall(call), safety)
 	timing.Execution = eventDurationSince(executionStarted)
 	if result.CallID == "" {
 		result.CallID = call.ID
 	}
 	if result.Name == "" {
 		result.Name = call.Name
+	}
+	if err == nil {
+		err = validateToolResultSize(result, safety)
 	}
 	wrappedErr := err
 	if err != nil {
@@ -191,6 +206,7 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		ToolSchemaHash:  toolSchemaHash,
+		ToolSafety:      safetyMetadata,
 		RequestID:       requestID,
 		ParentRequestID: parentRequestID,
 		Round:           round,
@@ -209,12 +225,13 @@ func (a *Agent) executeTool(ctx context.Context, call ToolCall, round int, paren
 	return cloneToolResult(result), nil
 }
 
-func (a *Agent) failTool(ctx context.Context, call ToolCall, requestID string, parentRequestID string, round int, started time.Time, estimatedTokens int, risk ToolRisk, toolSchemaHash string, timing ToolLifecycleTiming, err error) (ToolResult, error) {
+func (a *Agent) failTool(ctx context.Context, call ToolCall, requestID string, parentRequestID string, round int, started time.Time, estimatedTokens int, risk ToolRisk, toolSchemaHash string, safetyMetadata ToolSafetyMetadata, timing ToolLifecycleTiming, err error) (ToolResult, error) {
 	if emitErr := a.emit(ctx, Event{
 		Type:            EventAfterTool,
 		ToolName:        call.Name,
 		ToolRisk:        risk,
 		ToolSchemaHash:  toolSchemaHash,
+		ToolSafety:      safetyMetadata,
 		RequestID:       requestID,
 		ParentRequestID: parentRequestID,
 		Round:           round,
@@ -260,12 +277,101 @@ func approvalEventToolCall(call ToolCall) ToolCall {
 	return ToolCall{ID: call.ID, Name: call.Name}
 }
 
-func toolRisk(tool Tool) ToolRisk {
-	provider, ok := tool.(ToolRiskProvider)
-	if !ok {
-		return ToolRiskUnspecified
+type toolCallOutcome struct {
+	result ToolResult
+	err    error
+}
+
+func (a *Agent) callTool(ctx context.Context, tool Tool, call ToolCall, safety ToolSafety) (ToolResult, error) {
+	release, err := a.acquireToolSlot(call.Name, safety.MaxConcurrency)
+	if err != nil {
+		return ToolResult{}, err
 	}
-	return provider.Risk()
+	if safety.Timeout <= 0 {
+		defer release()
+		return tool.Call(ctx, call)
+	}
+
+	toolCtx, cancel := context.WithTimeout(ctx, safety.Timeout)
+	defer cancel()
+	done := make(chan toolCallOutcome, 1)
+	go func() {
+		defer release()
+		result, err := tool.Call(toolCtx, call)
+		done <- toolCallOutcome{result: result, err: err}
+	}()
+
+	select {
+	case outcome := <-done:
+		return outcome.result, outcome.err
+	case <-toolCtx.Done():
+		return ToolResult{}, toolCtx.Err()
+	}
+}
+
+func (a *Agent) acquireToolSlot(name string, maxConcurrency int) (func(), error) {
+	if maxConcurrency <= 0 {
+		return func() {}, nil
+	}
+	a.mu.Lock()
+	if a.toolConcurrency == nil {
+		a.toolConcurrency = make(map[string]int)
+	}
+	if a.toolConcurrency[name] >= maxConcurrency {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("%w: max concurrency %d", ErrToolConcurrencyLimitExceeded, maxConcurrency)
+	}
+	a.toolConcurrency[name]++
+	a.mu.Unlock()
+
+	return func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.toolConcurrency[name] <= 1 {
+			delete(a.toolConcurrency, name)
+			return
+		}
+		a.toolConcurrency[name]--
+	}, nil
+}
+
+func validateToolResultSize(result ToolResult, safety ToolSafety) error {
+	if safety.MaxResultBytes <= 0 {
+		return nil
+	}
+	contentBytes := len(result.Content)
+	if contentBytes <= safety.MaxResultBytes {
+		return nil
+	}
+	return fmt.Errorf("%w: content bytes %d exceeds max %d", ErrToolResultTooLarge, contentBytes, safety.MaxResultBytes)
+}
+
+func toolSafety(tool Tool) ToolSafety {
+	if tool == nil {
+		return ToolSafety{}
+	}
+	safety := ToolSafety{}
+	if provider, ok := tool.(ToolSafetyProvider); ok {
+		safety = provider.ToolSafety()
+	}
+	if safety.Risk == "" {
+		if provider, ok := tool.(ToolRiskProvider); ok {
+			safety.Risk = provider.Risk()
+		}
+	}
+	return cloneToolSafety(safety)
+}
+
+func toolRisk(tool Tool) ToolRisk {
+	return toolSafety(tool).Risk
+}
+
+func cloneToolSafety(safety ToolSafety) ToolSafety {
+	return core.CloneToolSafety(safety)
+}
+
+func toolSafetyMetadata(safety ToolSafety) ToolSafetyMetadata {
+	return core.ToolSafetyMetadataFromSafety(safety)
 }
 
 func cloneToolResult(result ToolResult) ToolResult {

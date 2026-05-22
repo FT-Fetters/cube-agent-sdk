@@ -224,6 +224,8 @@ func TestForbiddenTelemetryFieldNamesCoverRedactionRegressionClasses(t *testing.
 		"credentials",
 		"full_provider_urls",
 		"mcp_environment_values",
+		"tool_scope_values",
+		"tool_business_reasons",
 	}
 	got := map[string]struct{}{}
 	for _, name := range ForbiddenTelemetryFieldNames() {

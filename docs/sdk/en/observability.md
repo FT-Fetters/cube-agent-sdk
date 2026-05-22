@@ -228,6 +228,13 @@ meaning of an existing name outside a major-version compatibility break.
 | `agent.tool.timing.validation_ms` | logs, traces | numeric | Tool validation duration. |
 | `agent.tool.timing.approval_ms` | logs, traces | numeric | Approval wait duration. |
 | `agent.tool.timing.execution_ms` | logs, traces | numeric | Tool execution duration. |
+| `agent.tool.timeout_configured` | logs, traces | low | Whether a tool timeout was configured. |
+| `agent.tool.timeout_ms` | logs, traces | numeric | Configured tool timeout in milliseconds. |
+| `agent.tool.max_concurrency` | logs, traces | numeric | Configured per-agent tool concurrency limit. |
+| `agent.tool.max_result_bytes` | logs, traces | numeric | Configured tool result content byte limit. |
+| `agent.tool.scope.count` | logs, traces | numeric | Number of configured tool scopes. |
+| `agent.tool.scope.hash` | logs, traces | high | Hash of configured scope kind/value pairs, never raw values. |
+| `agent.tool.business_reason.hash` | logs, traces | high | Hash of configured tool business reason. |
 | `agent.tool.result.content_bytes` | logs, traces | numeric | Tool result content byte length. |
 | `agent.tool.result.metadata_keys` | logs, traces | high | Metadata key names only, never values. |
 | `agent.tool.result.mcp_is_error` | logs, traces | low | MCP result error flag. |
@@ -249,14 +256,14 @@ meaning of an existing name outside a major-version compatibility break.
 `event`, `failed`, `error_category`, `model_error_subcategory`, `tool_name`,
 `tool_risk`, `provider`, `http_status`, and `tool_phase`. Default metrics omit
 run IDs, request IDs, trace IDs, span IDs, trace state, provider request IDs,
-tool schema hashes, tool result metadata keys, tool result metadata values, and
+tool schema hashes, tool scope hashes, tool business-reason hashes, tool result metadata keys, tool result metadata values, raw scope values, tool business reasons, and
 MCP environment values. Treat `tool_name` as bounded: it is useful when the tool
 catalog is controlled, but high-cardinality dynamic tool catalogs should avoid
 using it for backend labels.
 
 Do not map prompts, message content, tool arguments, tool result content, tool
-result metadata values, raw errors, credentials, full provider URLs, or MCP
-environment values into logs, metric labels, traces, span events, or baggage.
+result metadata values, raw errors, credentials, full provider URLs, MCP
+environment values, tool scope values, or tool business reasons into logs, metric labels, traces, span events, or baggage.
 `ForbiddenTelemetryFieldNames()` returns this policy list for tests and docs.
 
 ## Sanitized Metadata
@@ -264,7 +271,7 @@ environment values into logs, metric labels, traces, span events, or baggage.
 Events and observations carry audit fields such as event type, agent ID,
 run ID, trace ID, span ID, trace state, subagent ID, request ID, parent request
 ID, round, duration, estimated tokens, real token usage, streaming telemetry,
-tool name, tool risk, tool schema hash, tool lifecycle timing, approval result,
+tool name, tool risk, tool schema hash, tool lifecycle timing, tool safety audit metadata, approval result,
 skill name, error category, model error subcategory, safe tool result metadata,
 and safe provider diagnostics for model failures. `ParentRequestID` links tool
 and approval events to the model request that caused them, and links follow-up
@@ -274,6 +281,8 @@ Tool and approval lifecycle records include `ToolSchemaHash` when the tool has
 a parameter schema. The hash is deterministic over the parameter schema and
 descriptor metadata, and does not include tool arguments, tool results, prompts,
 or raw schema JSON. It stays empty for tools without parameter schemas.
+
+Tool lifecycle records also include `ToolSafety` audit metadata when a tool declares limits, scopes, or a business reason. This metadata includes configured timeout, max concurrency, max result bytes, scope count, scope hash, and business-reason hash. It does not include raw scope values or raw business reasons.
 
 After-tool observations include `ToolResultMetadata` with result content byte
 size, sorted result metadata key names, and MCP `mcpIsError` status when

@@ -85,6 +85,9 @@ var ErrToolValidation = schema.ErrToolValidation
 
 type ToolDescriptor = core.ToolDescriptor
 type ToolRisk = core.ToolRisk
+type ToolScope = core.ToolScope
+type ToolSafety = core.ToolSafety
+type ToolSafetyMetadata = core.ToolSafetyMetadata
 
 const (
 	ToolRiskUnspecified = core.ToolRiskUnspecified
@@ -98,6 +101,7 @@ type ToolResult = core.ToolResult
 type Tool = core.Tool
 type ToolParametersSchemaProvider = core.ToolParametersSchemaProvider
 type ToolRiskProvider = core.ToolRiskProvider
+type ToolSafetyProvider = core.ToolSafetyProvider
 type ToolFunc = core.ToolFunc
 
 type ApprovalRequest = core.ApprovalRequest

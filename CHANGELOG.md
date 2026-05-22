@@ -38,6 +38,8 @@ release. Dates use ISO 8601 format.
 - Production-oriented observer interface with sanitized event details.
 - Safer approval policy helpers for deny-by-default, allowlists, and tool risk
   levels.
+- Tool safety guardrails for per-tool timeouts, concurrency limits, result-size
+  limits, scopes, business approval reasons, and sanitized audit metadata.
 - Runnable local examples and README coverage for core SDK workflows.
 - Provider capability declarations, selection helpers, pre-run mismatch errors,
   and built-in provider capability matrix documentation.

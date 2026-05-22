@@ -91,6 +91,11 @@ method-level details while keeping this page as a navigation aid.
 - `ToolParametersSchemaProvider`
 - `ToolParametersSchemaFromStruct`
 - `ToolRiskProvider`
+- `ToolSafetyProvider`
+- `ToolWithSafety`
+- `ToolScope`
+- `ToolSafety`
+- `ToolSafetyMetadata`
 - `ToolRisk`
 - `ToolRiskRead`, `ToolRiskWrite`, `ToolRiskDestructive`, `ToolRiskUnspecified`
 - `SchemaType`
@@ -285,6 +290,13 @@ method-level details while keeping this page as a navigation aid.
 - `TelemetryAttrToolTimingValidationMS`
 - `TelemetryAttrToolTimingApprovalMS`
 - `TelemetryAttrToolTimingExecutionMS`
+- `TelemetryAttrToolTimeoutConfigured`
+- `TelemetryAttrToolTimeoutMS`
+- `TelemetryAttrToolMaxConcurrency`
+- `TelemetryAttrToolMaxResultBytes`
+- `TelemetryAttrToolScopeCount`
+- `TelemetryAttrToolScopeHash`
+- `TelemetryAttrToolBusinessReasonHash`
 - `TelemetryAttrToolResultContentBytes`
 - `TelemetryAttrToolResultMetadataKeys`
 - `TelemetryAttrToolResultMCPIsError`
@@ -318,6 +330,7 @@ method-level details while keeping this page as a navigation aid.
 - `StreamTelemetry`
 - `ToolLifecycleTiming`
 - `ToolResultMetadata`
+- `ToolSafetyMetadata`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
@@ -329,7 +342,9 @@ method-level details while keeping this page as a navigation aid.
 - `TraceContextFromContext`
 
 `Event` and `Observation` include `ToolSchemaHash` on tool and approval
-lifecycle records when the registered tool has a parameter schema.
+lifecycle records when the registered tool has a parameter schema. They include
+`ToolSafety` audit metadata when a tool declares timeouts, concurrency limits,
+result limits, scopes, or a business reason.
 After-tool observations include `ToolResultMetadata` with result content byte
 size, sorted result metadata key names, and MCP `mcpIsError` status when
 present.
@@ -355,6 +370,8 @@ results fall back to the default request ID format.
 - `ErrApprovalDenied`
 - `ErrToolNotFound`
 - `ErrToolValidation`
+- `ErrToolConcurrencyLimitExceeded`
+- `ErrToolResultTooLarge`
 - `ErrMaxToolRoundsExceeded`
 - `ErrStreamingUnsupported`
 - `ErrStreamingToolCallsUnsupported`

@@ -27,11 +27,13 @@ Before enabling an agent in production, verify each item below:
 6. Decide whether metrics must be exact. If so, put `MetricsObserver` outside
    `NewSamplingObserver` and sample only detailed logs or traces.
 7. Keep high-cardinality fields in logs and traces, not default metric labels.
-8. Alert on model failure rate, provider throttling, tool failures, stream
-   latency, and missing telemetry.
-9. Document the privacy red lines and test that forbidden fields never enter
+8. For every production tool, set `ToolSafety` with risk, timeout, maximum
+   concurrency, maximum result bytes, and side-effect scopes where applicable.
+9. Alert on model failure rate, provider throttling, tool failures, stream
+   latency, local tool limit rejections, and missing telemetry.
+10. Document the privacy red lines and test that forbidden fields never enter
    logs, metric labels, traces, span events, or baggage.
-10. Run local fake-provider tests, the OpenTelemetry example tests, and the
+11. Run local fake-provider tests, the OpenTelemetry example tests, and the
     optional live-provider test before rollout.
 
 ## Signal Wiring
@@ -111,8 +113,32 @@ Recommended mappings:
   `agent.stream.throughput_bytes_per_second` explain streaming quality.
 - `agent.provider.*` fields diagnose provider throttling and outages without
   exposing request bodies or credentials.
+- `agent.tool.timeout_*`, `agent.tool.max_*`, `agent.tool.scope.*`, and
+  `agent.tool.business_reason.hash` explain local tool guardrails without
+  exposing raw scope values or business reasons.
 - `agent.run_id`, `agent.request_id`, `agent.parent_request_id`, and
   `agent.trace_id` are log and trace correlation fields.
+
+## Tool Security
+
+Treat tool execution as a production security boundary. Approval decides whether a call may run; `ToolSafety` limits what happens if it is approved. Configure both for MCP tools, file tools, network tools, and any custom tool with side effects.
+
+Recommended baseline:
+
+1. Use deny-by-default approval: combine `AllowToolsApproval`, `AllowRisksApproval`, and application-specific `ApprovalFunc` checks.
+2. Declare a risk for every tool. Reads should still have schemas and limits; write and destructive tools should also have scopes and business reasons.
+3. Set a tool timeout below downstream service or process timeouts. Tools should respect `ctx.Done()` and stop work when canceled.
+4. Set `MaxConcurrency` to prevent local fan-out from exhausting files, processes, sockets, browser sessions, or remote APIs.
+5. Set `MaxResultBytes` so tool output cannot flood model context or telemetry pipelines. Store large product data in product storage and return a reference instead.
+6. Bind write/destructive tools to narrow `ToolScope` values such as tenant, repository, filesystem root, account, queue, or service name. Approval policies can inspect raw values; observations export only scope count and hash.
+7. Use `BusinessReason` for ticket IDs or policy reasons required by your organization. Observations export only a hash.
+8. Alert on `ErrToolConcurrencyLimitExceeded`, `ErrToolResultTooLarge`, `context.DeadlineExceeded`, and elevated approval denials.
+
+MCP tools: wrap discovered tools with `ToolWithSafety` before registration. Keep MCP server credentials and environment outside telemetry, prefer read-only server modes, use separate server instances for read/write capabilities, and assign scopes per server or tool. Do not assume a remote MCP descriptor's description is a security policy.
+
+File tools: scope to an allowlisted root or virtual filesystem, reject path traversal and symlink escapes in the tool implementation, keep destructive operations behind `ToolRiskDestructive`, and return bounded summaries rather than file contents when files can be large.
+
+Network tools: use an allowlist of hosts or services, cap response size, set request timeouts, disable credential forwarding unless explicitly needed, and treat full URLs, headers, cookies, and response bodies as sensitive. Return host/status/count metadata rather than raw payloads when possible.
 
 ## Sampling Strategy
 
@@ -145,8 +171,7 @@ cardinality budget:
 - agent IDs, subagent IDs, provider request IDs, endpoint hosts, retry-after
   values, and rate-limit header values;
 - tool names when the tool catalog is dynamic;
-- tool schema hashes, tool result metadata keys, skill names, and approval
-  reason text.
+- tool schema hashes, tool scope hashes, tool business-reason hashes, tool result metadata keys, skill names, and approval reason text.
 
 Low-cardinality fields are usually safe as metric labels: event type, failed
 status, error category, model error subcategory, tool risk, provider name, HTTP
@@ -178,6 +203,7 @@ Suggested alerts:
 - Tool validation failures after a deploy, which can indicate schema drift or a
   model/tool contract mismatch.
 - Approval denials above the expected baseline for write or destructive tools.
+- Tool timeout, result-size, or concurrency-limit rejections above the expected baseline.
 - Stream time to first token or total stream duration above SLO.
 - No observations for active traffic, which usually means observer wiring,
   sampling, exporter, or backend ingestion broke.
@@ -188,8 +214,7 @@ Suggested dashboards:
   tool count.
 - Provider health: status codes, retry-after, rate-limit headers, request IDs,
   and model error subcategories.
-- Tool health: validation, approval, execution durations, error category, tool
-  risk, and controlled tool name breakdown.
+- Tool health: validation, approval, execution durations, configured timeout, concurrency/result limits, scope counts, error category, tool risk, and controlled tool name breakdown.
 - Streaming: time to first token, delta count, byte count, throughput, stream
   errors, and stream lifecycle observations when enabled.
 - Privacy audit: absence checks for forbidden field names and unexpected
@@ -287,6 +312,8 @@ tests:
 - `credentials`
 - `full_provider_urls`
 - `mcp_environment_values`
+- `tool_scope_values`
+- `tool_business_reasons`
 
 Operational rules:
 
@@ -294,8 +321,7 @@ Operational rules:
 - Do not attach prompt or tool payloads to OpenTelemetry baggage.
 - Do not log raw provider errors; use `AgentError` categories and provider
   diagnostics instead.
-- Do not store raw tool result content in general telemetry. Store product data
-  in product storage with product access controls.
+- Do not store raw tool result content, raw scope values, or raw tool business reasons in general telemetry. Store product data in product storage with product access controls.
 - Treat session snapshots, session records, and event logs as user content and
   apply storage encryption, access controls, retention, and migration review.
 - Keep provider credentials, runtime configuration, raw tool payloads, and raw

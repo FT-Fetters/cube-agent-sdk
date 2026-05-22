@@ -10,6 +10,11 @@ lookup := agent.ToolFunc{
 	ToolName:        "lookup_account",
 	ToolDescription: "Read account status",
 	ToolRisk:        agent.ToolRiskRead,
+	Safety: agent.ToolSafety{
+		Timeout:        2 * time.Second,
+		MaxConcurrency: 8,
+		MaxResultBytes: 4096,
+	},
 	Parameters: &agent.ToolParametersSchema{
 		Type:     agent.SchemaTypeObject,
 		Required: []string{"account_id"},
@@ -49,6 +54,7 @@ bot, err := agent.New(cfg, model, agent.WithTools(lookup))
 
 - `ParametersSchema() *ToolParametersSchema`
 - `Risk() ToolRisk`
+- `ToolSafety() ToolSafety`
 
 ## Schema 支持
 
@@ -85,6 +91,31 @@ parameters, err := agent.ToolParametersSchemaFromStruct(LookupArgs{})
 `additionalProperties`。生成器支持嵌套结构体、指针、切片、数组、基础标量类型，
 以及 `json:"-"` 忽略字段。map、interface、函数、channel、完整 JSON Schema 组合和
 默认参数注入不在这个轻量子集内。
+
+## 工具安全边界
+
+`ToolSafety` 让每个工具声明由 SDK 执行的 guardrails 和审批上下文：
+
+- `Risk`：read、write、destructive 或 unspecified 风险。`ToolFunc.ToolRisk` 继续可用；如果希望把安全配置放在一起，可使用 `Safety.Risk`。
+- `Timeout`：单次工具调用的最长耗时。SDK 会传入带 deadline 的 context；超时返回 `context.DeadlineExceeded`。
+- `MaxConcurrency`：同一个 `Agent` 上该工具的最大并发执行数；超过限制会返回 `ErrToolConcurrencyLimitExceeded`。
+- `MaxResultBytes`：`ToolResult.Content` 最大字节数；成功但过大的结果会以 `ErrToolResultTooLarge` 失败，且不会进入 agent context。
+- `Scopes`：应用定义的安全边界，例如 tenant、文件根目录或下游服务 scope。scope value 会传给审批策略，但遥测只包含数量和 hash。
+- `BusinessReason`：应用定义的副作用审批原因或工单标识。Observation 只包含 hash。
+
+对于 MCP client 或第三方库返回的工具，可以包一层而不是重写工具：
+
+```go
+for i, tool := range tools {
+	tools[i] = agent.ToolWithSafety(tool, agent.ToolSafety{
+		Risk:           agent.ToolRiskRead,
+		Timeout:        2 * time.Second,
+		MaxConcurrency: 4,
+		MaxResultBytes: 8192,
+		Scopes:         []agent.ToolScope{{Kind: "mcp_server", Value: "filesystem-readonly"}},
+	})
+}
+```
 
 ## 风险标签
 

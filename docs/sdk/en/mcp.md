@@ -45,6 +45,16 @@ if err != nil {
 	return err
 }
 
+for i, tool := range tools {
+	tools[i] = agent.ToolWithSafety(tool, agent.ToolSafety{
+		Risk:           agent.ToolRiskRead,
+		Timeout:        2 * time.Second,
+		MaxConcurrency: 4,
+		MaxResultBytes: 8192,
+		Scopes:         []agent.ToolScope{{Kind: "mcp_server", Value: "filesystem-readonly"}},
+	})
+}
+
 bot, err := agent.New(cfg, model,
 	agent.WithTools(tools...),
 	agent.WithApprovalPolicy(agent.AllowToolsApproval("read_file")),
@@ -84,12 +94,18 @@ HTTP and SSE startup, list, and health operations use a short retry/backoff
 window for transient network failures, HTTP 408/429, and 5xx responses. Tool
 calls are not retried to avoid duplicating side effects.
 
+## Production Security
+
+MCP tool descriptors are discovery metadata, not a complete security policy. Before registering bridged tools in production, wrap them with `ToolWithSafety` to set risk, timeout, maximum concurrency, maximum result bytes, and scopes that identify the server, tenant, filesystem root, or downstream capability. Pair the wrapper with deny-by-default approval.
+
+Use separate MCP server instances for read-only and write/destructive capabilities when possible. Prefer read-only server modes, least-privilege credentials, explicit filesystem/network allowlists, and process supervision. Tool calls are not retried by the SDK, but an MCP server may still perform side effects after a client-side timeout if it ignores cancellation; design server tools to honor cancellation and idempotency where possible.
+
 ## Responsibilities
 
 Applications provide the real server binary or URL, credentials, environment,
 filesystem or network permissions, process supervision, and approval UX. The SDK
 keeps MCP environment values, URL query strings, raw HTTP response bodies, tool
-arguments, and tool results out of diagnostics and error strings.
+arguments, tool results, raw scope values, and tool business reasons out of diagnostics and error strings.
 
 Relevant sentinel errors include `ErrMCPProcessExited`, `ErrMCPRPC`, and
 `ErrMCPToolNotFound`.

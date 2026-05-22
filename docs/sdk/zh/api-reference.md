@@ -91,6 +91,11 @@
 - `ToolParametersSchemaProvider`
 - `ToolParametersSchemaFromStruct`
 - `ToolRiskProvider`
+- `ToolSafetyProvider`
+- `ToolWithSafety`
+- `ToolScope`
+- `ToolSafety`
+- `ToolSafetyMetadata`
 - `ToolRisk`
 - `ToolRiskRead`、`ToolRiskWrite`、`ToolRiskDestructive`、`ToolRiskUnspecified`
 - `SchemaType`
@@ -285,6 +290,13 @@
 - `TelemetryAttrToolTimingValidationMS`
 - `TelemetryAttrToolTimingApprovalMS`
 - `TelemetryAttrToolTimingExecutionMS`
+- `TelemetryAttrToolTimeoutConfigured`
+- `TelemetryAttrToolTimeoutMS`
+- `TelemetryAttrToolMaxConcurrency`
+- `TelemetryAttrToolMaxResultBytes`
+- `TelemetryAttrToolScopeCount`
+- `TelemetryAttrToolScopeHash`
+- `TelemetryAttrToolBusinessReasonHash`
 - `TelemetryAttrToolResultContentBytes`
 - `TelemetryAttrToolResultMetadataKeys`
 - `TelemetryAttrToolResultMCPIsError`
@@ -318,6 +330,7 @@
 - `StreamTelemetry`
 - `ToolLifecycleTiming`
 - `ToolResultMetadata`
+- `ToolSafetyMetadata`
 - `Observation`
 - `ObservationFromEvent`
 - `WithObserver`
@@ -351,6 +364,8 @@ request ID、tool name 和 subagent ID。生成器返回空值时会回退到默
 - `ErrApprovalDenied`
 - `ErrToolNotFound`
 - `ErrToolValidation`
+- `ErrToolConcurrencyLimitExceeded`
+- `ErrToolResultTooLarge`
 - `ErrMaxToolRoundsExceeded`
 - `ErrStreamingUnsupported`
 - `ErrStreamingToolCallsUnsupported`

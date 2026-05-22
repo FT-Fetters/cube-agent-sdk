@@ -215,6 +215,13 @@ major-version 兼容性破坏之外删除、重命名或改变现有名称的含
 | `agent.tool.timing.validation_ms` | logs、traces | 数值 | 工具参数校验耗时。 |
 | `agent.tool.timing.approval_ms` | logs、traces | 数值 | 审批等待耗时。 |
 | `agent.tool.timing.execution_ms` | logs、traces | 数值 | 工具执行耗时。 |
+| `agent.tool.timeout_configured` | logs、traces | 低 | 是否配置了工具 timeout。 |
+| `agent.tool.timeout_ms` | logs、traces | 数值 | 已配置工具 timeout，单位毫秒。 |
+| `agent.tool.max_concurrency` | logs、traces | 数值 | 已配置的单 agent 工具并发限制。 |
+| `agent.tool.max_result_bytes` | logs、traces | 数值 | 已配置的工具结果内容字节限制。 |
+| `agent.tool.scope.count` | logs、traces | 数值 | 已配置 tool scopes 数量。 |
+| `agent.tool.scope.hash` | logs、traces | 高 | scope kind/value 对的 hash，不包含原始 value。 |
+| `agent.tool.business_reason.hash` | logs、traces | 高 | 工具业务原因的 hash。 |
 | `agent.tool.result.content_bytes` | logs、traces | 数值 | 工具结果内容字节长度。 |
 | `agent.tool.result.metadata_keys` | logs、traces | 高 | 仅 metadata key 名称，不含 value。 |
 | `agent.tool.result.mcp_is_error` | logs、traces | 低 | MCP result error 标志。 |
@@ -236,13 +243,13 @@ major-version 兼容性破坏之外删除、重命名或改变现有名称的含
 `failed`、`error_category`、`model_error_subcategory`、`tool_name`、
 `tool_risk`、`provider`、`http_status` 和 `tool_phase`。默认 metrics 不会包含
 run ID、request ID、trace ID、span ID、trace state、provider request ID、tool
-schema hash、工具结果 metadata keys、工具结果 metadata values 或 MCP environment
+schema hash、tool scope hashes、tool business-reason hashes、工具结果 metadata keys、工具结果 metadata values、原始 scope value、工具业务原因或 MCP environment
 values。`tool_name` 应按有界标签使用：工具集合受控时它很有用；如果工具 catalog
 是动态高基数，就不应作为后端 label。
 
 不要把 prompts、message content、tool arguments、tool result content、tool
-result metadata values、raw errors、credentials、完整 provider URLs 或 MCP
-environment values 映射到日志、metric labels、traces、span events 或 baggage。
+result metadata values、raw errors、credentials、完整 provider URLs、MCP
+environment values、tool scope values 或 tool business reasons 映射到日志、metric labels、traces、span events 或 baggage。
 `ForbiddenTelemetryFieldNames()` 会返回这份策略清单，供测试和文档引用。
 
 ## 脱敏元数据
@@ -250,7 +257,7 @@ environment values 映射到日志、metric labels、traces、span events 或 ba
 事件和 observations 携带 event type、agent ID、run ID、trace ID、span ID、
 trace state、subagent ID、request ID、parent request ID、round、duration、
 estimated tokens、真实 token usage、streaming telemetry、tool name、tool risk、
-tool schema hash、tool lifecycle timing、approval result、skill name、error category、
+tool schema hash、tool lifecycle timing、tool safety 审计元数据、approval result、skill name、error category、
 model error subcategory，安全的工具结果元数据，以及模型失败时的安全 provider
 diagnostics 等审计字段。
 `ParentRequestID` 会把工具和审批事件关联到触发它们的模型请求，也会关联同一 run 内的后续模型请求。
@@ -258,6 +265,8 @@ diagnostics 等审计字段。
 当工具提供参数 schema 时，工具和审批生命周期记录会包含 `ToolSchemaHash`。该 hash
 会基于参数 schema 和描述符元数据确定性生成，不包含工具参数、工具结果、prompt 或原始
 schema JSON。没有参数 schema 的工具会保持该字段为空。
+
+当工具声明限制、scope 或业务原因时，工具生命周期记录也会包含 `ToolSafety` 审计元数据。该元数据包括已配置 timeout、max concurrency、max result bytes、scope count、scope hash 和 business-reason hash，不包含原始 scope value 或原始业务原因。
 
 after-tool observations 会包含 `ToolResultMetadata`，其中包括工具结果内容的字节数、
 排序后的结果 metadata key 名称，以及存在时的 MCP `mcpIsError` 状态。它不会包含

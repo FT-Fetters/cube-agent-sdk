@@ -30,6 +30,13 @@ const (
 	TelemetryAttrToolTimingValidationMS      = "agent.tool.timing.validation_ms"
 	TelemetryAttrToolTimingApprovalMS        = "agent.tool.timing.approval_ms"
 	TelemetryAttrToolTimingExecutionMS       = "agent.tool.timing.execution_ms"
+	TelemetryAttrToolTimeoutConfigured       = "agent.tool.timeout_configured"
+	TelemetryAttrToolTimeoutMS               = "agent.tool.timeout_ms"
+	TelemetryAttrToolMaxConcurrency          = "agent.tool.max_concurrency"
+	TelemetryAttrToolMaxResultBytes          = "agent.tool.max_result_bytes"
+	TelemetryAttrToolScopeCount              = "agent.tool.scope.count"
+	TelemetryAttrToolScopeHash               = "agent.tool.scope.hash"
+	TelemetryAttrToolBusinessReasonHash      = "agent.tool.business_reason.hash"
 	TelemetryAttrToolResultContentBytes      = "agent.tool.result.content_bytes"
 	TelemetryAttrToolResultMetadataKeys      = "agent.tool.result.metadata_keys"
 	TelemetryAttrToolResultMCPIsError        = "agent.tool.result.mcp_is_error"
@@ -90,6 +97,13 @@ var stableTelemetryAttributeNames = []string{
 	TelemetryAttrToolTimingValidationMS,
 	TelemetryAttrToolTimingApprovalMS,
 	TelemetryAttrToolTimingExecutionMS,
+	TelemetryAttrToolTimeoutConfigured,
+	TelemetryAttrToolTimeoutMS,
+	TelemetryAttrToolMaxConcurrency,
+	TelemetryAttrToolMaxResultBytes,
+	TelemetryAttrToolScopeCount,
+	TelemetryAttrToolScopeHash,
+	TelemetryAttrToolBusinessReasonHash,
 	TelemetryAttrToolResultContentBytes,
 	TelemetryAttrToolResultMetadataKeys,
 	TelemetryAttrToolResultMCPIsError,
@@ -113,6 +127,7 @@ var lowCardinalityTelemetryAttributeNames = []string{
 	TelemetryAttrFailed,
 	TelemetryAttrToolRisk,
 	TelemetryAttrToolResultMCPIsError,
+	TelemetryAttrToolTimeoutConfigured,
 	TelemetryAttrApprovalApproved,
 	TelemetryAttrErrorCategory,
 	TelemetryAttrErrorModelSubcategory,
@@ -131,6 +146,8 @@ var highCardinalityTelemetryAttributeNames = []string{
 	TelemetryAttrParentRequestID,
 	TelemetryAttrToolName,
 	TelemetryAttrToolSchemaHash,
+	TelemetryAttrToolScopeHash,
+	TelemetryAttrToolBusinessReasonHash,
 	TelemetryAttrToolResultMetadataKeys,
 	TelemetryAttrSkillName,
 	TelemetryAttrApprovalReason,
@@ -164,6 +181,8 @@ var forbiddenTelemetryFieldNames = []string{
 	"credentials",
 	"full_provider_urls",
 	"mcp_environment_values",
+	"tool_scope_values",
+	"tool_business_reasons",
 }
 
 // StableTelemetryAttributeNames returns the safe, stable agent.* attribute names

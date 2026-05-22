@@ -176,6 +176,7 @@ func appendStableToolSlogAttrs(attrs []slog.Attr, observation Observation) []slo
 	attrs = appendSlogString(attrs, TelemetryAttrToolRisk, string(observation.ToolRisk))
 	attrs = appendSlogString(attrs, TelemetryAttrToolSchemaHash, observation.ToolSchemaHash)
 	attrs = appendStableToolTimingSlogAttrs(attrs, observation.ToolTiming)
+	attrs = appendStableToolSafetySlogAttrs(attrs, observation.ToolSafety)
 	attrs = appendStableToolResultMetadataSlogAttrs(attrs, observation.ToolResultMetadata)
 	return attrs
 }
@@ -190,6 +191,36 @@ func appendStableToolTimingSlogAttrs(attrs []slog.Attr, timing ToolLifecycleTimi
 	if timing.Execution > 0 {
 		attrs = append(attrs, slog.Float64(TelemetryAttrToolTimingExecutionMS, durationMilliseconds(timing.Execution)))
 	}
+	return attrs
+}
+
+func toolSafetyMetadataIsZero(metadata ToolSafetyMetadata) bool {
+	return !metadata.TimeoutConfigured && metadata.Timeout == 0 && metadata.MaxConcurrency == 0 &&
+		metadata.MaxResultBytes == 0 && metadata.ScopeCount == 0 && metadata.ScopeHash == "" &&
+		metadata.BusinessReasonHash == ""
+}
+
+func appendStableToolSafetySlogAttrs(attrs []slog.Attr, metadata ToolSafetyMetadata) []slog.Attr {
+	if toolSafetyMetadataIsZero(metadata) {
+		return attrs
+	}
+	if metadata.TimeoutConfigured {
+		attrs = append(attrs, slog.Bool(TelemetryAttrToolTimeoutConfigured, true))
+	}
+	if metadata.Timeout > 0 {
+		attrs = append(attrs, slog.Float64(TelemetryAttrToolTimeoutMS, durationMilliseconds(metadata.Timeout)))
+	}
+	if metadata.MaxConcurrency > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrToolMaxConcurrency, metadata.MaxConcurrency))
+	}
+	if metadata.MaxResultBytes > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrToolMaxResultBytes, metadata.MaxResultBytes))
+	}
+	if metadata.ScopeCount > 0 {
+		attrs = append(attrs, slog.Int(TelemetryAttrToolScopeCount, metadata.ScopeCount))
+	}
+	attrs = appendSlogString(attrs, TelemetryAttrToolScopeHash, metadata.ScopeHash)
+	attrs = appendSlogString(attrs, TelemetryAttrToolBusinessReasonHash, metadata.BusinessReasonHash)
 	return attrs
 }
 
@@ -281,6 +312,7 @@ func toolSlogAttrs(observation Observation) []slog.Attr {
 	if timingAttrs := toolLifecycleTimingSlogAttrs(observation.ToolTiming); timingAttrs != nil {
 		attrs = append(attrs, slogGroupAttr("timing", timingAttrs))
 	}
+	attrs = append(attrs, toolSafetySlogAttrs(observation.ToolSafety)...)
 	attrs = append(attrs, toolResultMetadataSlogAttrs(observation.ToolResultMetadata)...)
 	return attrs
 }
@@ -299,6 +331,31 @@ func toolLifecycleTimingSlogAttrs(timing ToolLifecycleTiming) []slog.Attr {
 	if timing.Execution > 0 {
 		attrs = append(attrs, slog.Float64("execution_ms", durationMilliseconds(timing.Execution)))
 	}
+	return attrs
+}
+
+func toolSafetySlogAttrs(metadata ToolSafetyMetadata) []slog.Attr {
+	if toolSafetyMetadataIsZero(metadata) {
+		return nil
+	}
+	var attrs []slog.Attr
+	if metadata.TimeoutConfigured {
+		attrs = append(attrs, slog.Bool("timeout_configured", true))
+	}
+	if metadata.Timeout > 0 {
+		attrs = append(attrs, slog.Float64("timeout_ms", durationMilliseconds(metadata.Timeout)))
+	}
+	if metadata.MaxConcurrency > 0 {
+		attrs = append(attrs, slog.Int("max_concurrency", metadata.MaxConcurrency))
+	}
+	if metadata.MaxResultBytes > 0 {
+		attrs = append(attrs, slog.Int("max_result_bytes", metadata.MaxResultBytes))
+	}
+	if metadata.ScopeCount > 0 {
+		attrs = append(attrs, slog.Int("scope_count", metadata.ScopeCount))
+	}
+	attrs = appendSlogString(attrs, "scope_hash", metadata.ScopeHash)
+	attrs = appendSlogString(attrs, "business_reason_hash", metadata.BusinessReasonHash)
 	return attrs
 }
 

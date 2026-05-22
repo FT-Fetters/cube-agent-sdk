@@ -29,8 +29,9 @@ type Agent struct {
 	skillOrder   []string
 	activeSkills map[string]struct{}
 
-	tools     map[string]Tool
-	toolOrder []string
+	tools           map[string]Tool
+	toolOrder       []string
+	toolConcurrency map[string]int
 
 	mcpServers []MCPServerConfig
 
@@ -116,17 +117,18 @@ func New(config Config, model Model, options ...Option) (*Agent, error) {
 	}
 
 	agent := &Agent{
-		id:           config.ID,
-		model:        model,
-		config:       config,
-		skills:       make(map[string]Skill),
-		activeSkills: make(map[string]struct{}),
-		tools:        make(map[string]Tool),
-		approval:     AllowAllApproval{},
-		observer:     NoopObserver{},
-		tokenCount:   ApproxTokenCounter{},
-		subagents:    make(map[string]*Agent),
-		parentInbox:  make(map[string][]SubagentMessage),
+		id:              config.ID,
+		model:           model,
+		config:          config,
+		skills:          make(map[string]Skill),
+		activeSkills:    make(map[string]struct{}),
+		tools:           make(map[string]Tool),
+		toolConcurrency: make(map[string]int),
+		approval:        AllowAllApproval{},
+		observer:        NoopObserver{},
+		tokenCount:      ApproxTokenCounter{},
+		subagents:       make(map[string]*Agent),
+		parentInbox:     make(map[string][]SubagentMessage),
 	}
 	if config.Compact.MaxTokens > 0 {
 		agent.compactor = SummaryCompactor{KeepLast: config.Compact.KeepLast}
