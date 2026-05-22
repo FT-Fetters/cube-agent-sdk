@@ -1,0 +1,60 @@
+session.go
+  7356d394ecf58fc7 13-15,21-24,30-33,45-48,63,82-85,89,91-93
+docs/sdk/en/api-reference.md
+  7356d394ecf58fc7 118,121-137
+aliases.go
+  7356d394ecf58fc7 114
+SDK_FEATURE_ROADMAP_CHECKLIST.md
+  7356d394ecf58fc7 24
+CHANGELOG.md
+  7356d394ecf58fc7 28-30
+docs/sdk/en/README.md
+  7356d394ecf58fc7 50-51
+docs/sdk/zh/README.md
+  7356d394ecf58fc7 46
+errors.go
+  7356d394ecf58fc7 26-27
+session_persistence.go
+  7356d394ecf58fc7 1-501
+docs/sdk/en/errors.md
+  7356d394ecf58fc7 18-21,106
+docs/sdk/zh/errors.md
+  7356d394ecf58fc7 18-21,102
+session_persistence_test.go
+  7356d394ecf58fc7 1-236
+docs/sdk/zh/sessions.md
+  7356d394ecf58fc7 37-39,41-99,115-117
+docs/sdk/en/sessions.md
+  7356d394ecf58fc7 39-41,43-103,119-122
+docs/sdk/en/production.md
+  7356d394ecf58fc7 299-302
+internal/core/types.go
+  7356d394ecf58fc7 692
+docs/sdk/zh/api-reference.md
+  7356d394ecf58fc7 118,121-137
+docs/sdk/zh/production.md
+  7356d394ecf58fc7 263-264
+README.md
+  7356d394ecf58fc7 477-523
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "30d2b3292829f6677ac89750069b7c7977e0d254",
+  "prompts": {
+    "7356d394ecf58fc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4e91-2667-7072-a01d-9004a91b2c6e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 1081,
+      "total_deletions": 62,
+      "accepted_lines": 2097,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/26c390c003bda23edf8e467e48deab7e6bba6eff9aad30976de42ef470b393fd"
+    }
+  }
+}
