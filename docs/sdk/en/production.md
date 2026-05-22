@@ -296,8 +296,10 @@ Operational rules:
   diagnostics instead.
 - Do not store raw tool result content in general telemetry. Store product data
   in product storage with product access controls.
-- Treat session snapshots as user content and apply storage encryption, access
-  controls, and retention.
+- Treat session snapshots, session records, and event logs as user content and
+  apply storage encryption, access controls, retention, and migration review.
+- Keep provider credentials, runtime configuration, raw tool payloads, and raw
+  telemetry out of session event metadata.
 
 ## Live Test and Local Verification
 

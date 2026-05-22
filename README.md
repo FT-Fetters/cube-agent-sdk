@@ -474,11 +474,53 @@ if err := next.Restore(restored); err != nil {
 branch, err := next.Fork("what-if")
 ```
 
-`Snapshot` copies the managed conversation context. `Restore` replaces only that
-context, preserving the target agent's configured model and capabilities.
-`Fork` creates an independent agent with copied context and copied capability
-registries. The SDK serializes the snapshot shape; applications own durable
-storage, access control, retention, and schema migration.
+`Snapshot` copies the managed conversation context. `Restore` validates the
+snapshot schema and replaces only that context, preserving the target agent's
+configured model and capabilities. `Fork` creates an independent agent with
+copied context and copied capability registries.
+
+For durable persistence, implement `SessionStore` against Redis, Postgres, S3,
+or a file store, or use `NewMemorySessionStore` for tests and local examples.
+Session records include `schema_version`, an optimistic `version`, timestamps,
+safe string metadata, and structured migration errors.
+
+```go
+store := agent.NewMemorySessionStore()
+
+record := agent.NewSessionRecord("session-123", snapshot)
+record.Metadata = map[string]string{"tenant": "acme"}
+saved, err := store.SaveSession(ctx, record)
+if err != nil {
+	return err
+}
+
+loaded, err := store.LoadSession(ctx, saved.ID)
+if err != nil {
+	return err
+}
+if err := next.Restore(loaded.Snapshot); err != nil {
+	return err
+}
+```
+
+`SessionEventLog` is an append-only companion interface for safe lifecycle
+metadata. Events have stable IDs, monotonic sequences, schema metadata, run IDs,
+and caller-approved string metadata only.
+
+```go
+_, err = store.AppendSessionEvent(ctx, agent.SessionEvent{
+	SessionID: saved.ID,
+	Type:      agent.SessionEventRunStarted,
+	RunID:     "run-1",
+	Metadata:  map[string]string{"agent_id": next.ID()},
+})
+```
+
+The SDK serializes snapshot and record shapes; applications own durable storage,
+encryption, access control, retention, database migrations, and any adapters for
+Redis, Postgres, S3, or files. Do not put provider credentials, runtime config,
+prompts beyond normal session messages, tool payloads, or raw telemetry in event
+metadata.
 
 ## Approval Policies
 

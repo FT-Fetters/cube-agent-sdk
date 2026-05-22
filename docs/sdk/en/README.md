@@ -47,6 +47,7 @@ Applications connect those pieces through Go interfaces and options.
   controls.
 - MCP server binaries, deployment, supervision, and runtime permissions.
 - Human approval UI or business policy integration.
-- Durable storage, encryption, retention, and migration for snapshots.
+- Durable storage adapters, encryption, access control, retention, and migration
+  for snapshots, session records, and event logs.
 - Log, metrics, and trace exporters.
 - Secret management, rate limits, rollout strategy, and production monitoring.

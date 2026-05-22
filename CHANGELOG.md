@@ -25,6 +25,9 @@ release. Dates use ISO 8601 format.
   circuit breaking, token/cost budgets, and safe reliability events.
 - Minimal MCP stdio client and tool bridge.
 - Session snapshot, restore, reset, and fork APIs.
+- Dependency-free session persistence contracts, append-only session event logs,
+  in-memory store/log implementation, schema/version validation, and session
+  persistence error sentinels.
 - Structured errors and enriched lifecycle event metadata.
 - Production-oriented observer interface with sanitized event details.
 - Safer approval policy helpers for deny-by-default, allowlists, and tool risk

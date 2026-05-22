@@ -115,8 +115,26 @@
 
 ## 会话和子 Agent
 
+- `CurrentSessionSchemaVersion`
 - `SessionSnapshot`
 - `NewSessionSnapshot`
+- `ValidateSessionSnapshot`
+- `SessionRecord`
+- `NewSessionRecord`
+- `ValidateSessionRecord`
+- `SessionStore`
+- `SessionEventLog`
+- `SessionEvent`
+- `SessionEventType`
+- `SessionEventRunStarted`、`SessionEventRunCompleted`、
+  `SessionEventRunFailed`、`SessionEventSnapshotSaved`
+- `MemorySessionStore`
+- `NewMemorySessionStore`
+- `SessionPersistenceError`
+- `ErrSessionNotFound`
+- `ErrSessionVersionMismatch`
+- `ErrSessionInvalidRecord`
+- `ErrSessionEventConflict`
 - `Reset`
 - `Snapshot`
 - `Restore`

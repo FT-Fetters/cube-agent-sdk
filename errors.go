@@ -23,6 +23,8 @@ func classifyError(err error) ErrorCategory {
 		return ErrorCategorySubagent
 	case errors.Is(err, ErrStreamingUnsupported), errors.Is(err, ErrStreamingToolCallsUnsupported):
 		return ErrorCategoryStreaming
+	case errors.Is(err, ErrSessionNotFound), errors.Is(err, ErrSessionVersionMismatch), errors.Is(err, ErrSessionInvalidRecord), errors.Is(err, ErrSessionEventConflict):
+		return ErrorCategorySession
 	case errors.Is(err, ErrToolNotFound), errors.Is(err, ErrMaxToolRoundsExceeded):
 		return ErrorCategoryTool
 	default:

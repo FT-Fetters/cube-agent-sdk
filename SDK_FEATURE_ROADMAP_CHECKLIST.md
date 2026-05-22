@@ -21,7 +21,7 @@
     - backoff、最大重试次数、总耗时和预算限制可配置。
     - 观测事件能区分原始模型失败、重试、最终失败和预算拒绝。
 
-- [ ] **3. 持久化 session 与 event log 接口**
+- [x] **3. 持久化 session 与 event log 接口**
   - 在现有 snapshot/restore 基础上，补充轻量 `SessionStore` 或 append-only run event log 契约。
   - 验收目标：
     - SDK 提供接口和内存实现，不绑定具体数据库。

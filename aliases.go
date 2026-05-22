@@ -111,6 +111,7 @@ const (
 	ErrorCategoryCompact   = core.ErrorCategoryCompact
 	ErrorCategorySubagent  = core.ErrorCategorySubagent
 	ErrorCategoryStreaming = core.ErrorCategoryStreaming
+	ErrorCategorySession   = core.ErrorCategorySession
 	ErrorCategoryHook      = core.ErrorCategoryHook
 	ErrorCategoryConfig    = core.ErrorCategoryConfig
 )

@@ -15,6 +15,10 @@ failures in `AgentError` when stable context is useful.
 - `ErrMCPRPC`
 - `ErrMCPToolNotFound`
 - `ErrSubagentNotFound`
+- `ErrSessionNotFound`
+- `ErrSessionVersionMismatch`
+- `ErrSessionInvalidRecord`
+- `ErrSessionEventConflict`
 - `ErrModelAPIUnsupported`
 
 Use `errors.Is` for sentinel checks.
@@ -99,6 +103,7 @@ from a model adapter.
 - `ErrorCategoryCompact`
 - `ErrorCategorySubagent`
 - `ErrorCategoryStreaming`
+- `ErrorCategorySession`
 - `ErrorCategoryHook`
 - `ErrorCategoryConfig`
 

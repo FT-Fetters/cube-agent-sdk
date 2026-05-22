@@ -10,24 +10,27 @@ import (
 
 // SessionSnapshot is a persistable, point-in-time copy of an agent's conversation context.
 type SessionSnapshot struct {
-	AgentID   string    `json:"agent_id,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
+	SchemaVersion int       `json:"schema_version,omitempty"`
+	AgentID       string    `json:"agent_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
 
 	messages []Message
 }
 
 type sessionSnapshotJSON struct {
-	AgentID   string    `json:"agent_id,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	Messages  []Message `json:"messages,omitempty"`
+	SchemaVersion int       `json:"schema_version,omitempty"`
+	AgentID       string    `json:"agent_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
+	Messages      []Message `json:"messages,omitempty"`
 }
 
 // NewSessionSnapshot builds a snapshot from externally persisted messages.
 func NewSessionSnapshot(agentID string, messages []Message) SessionSnapshot {
 	return SessionSnapshot{
-		AgentID:   agentID,
-		CreatedAt: time.Now().UTC(),
-		messages:  cloneMessages(messages),
+		SchemaVersion: CurrentSessionSchemaVersion,
+		AgentID:       agentID,
+		CreatedAt:     time.Now().UTC(),
+		messages:      cloneMessages(messages),
 	}
 }
 
@@ -39,9 +42,10 @@ func (s SessionSnapshot) Messages() []Message {
 // MarshalJSON exposes messages for persistence without making the in-memory slice mutable.
 func (s SessionSnapshot) MarshalJSON() ([]byte, error) {
 	return json.Marshal(sessionSnapshotJSON{
-		AgentID:   s.AgentID,
-		CreatedAt: s.CreatedAt,
-		Messages:  cloneMessages(s.messages),
+		SchemaVersion: s.SchemaVersion,
+		AgentID:       s.AgentID,
+		CreatedAt:     s.CreatedAt,
+		Messages:      cloneMessages(s.messages),
 	})
 }
 
@@ -56,6 +60,7 @@ func (s *SessionSnapshot) UnmarshalJSON(data []byte) error {
 	if err := decoder.Decode(&payload); err != nil {
 		return err
 	}
+	s.SchemaVersion = normalizeSessionSchemaVersion(payload.SchemaVersion)
 	s.AgentID = payload.AgentID
 	s.CreatedAt = payload.CreatedAt
 	s.messages = cloneMessages(payload.Messages)
@@ -74,14 +79,18 @@ func (a *Agent) Snapshot() SessionSnapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return SessionSnapshot{
-		AgentID:   a.id,
-		CreatedAt: time.Now().UTC(),
-		messages:  cloneMessages(a.messages),
+		SchemaVersion: CurrentSessionSchemaVersion,
+		AgentID:       a.id,
+		CreatedAt:     time.Now().UTC(),
+		messages:      cloneMessages(a.messages),
 	}
 }
 
-// Restore replaces only the managed conversation context from a snapshot.
+// Restore validates a snapshot and replaces only the managed conversation context.
 func (a *Agent) Restore(snapshot SessionSnapshot) error {
+	if err := ValidateSessionSnapshot(snapshot); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.messages = cloneMessages(snapshot.messages)

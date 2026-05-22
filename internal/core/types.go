@@ -689,6 +689,7 @@ const (
 	ErrorCategoryCompact   ErrorCategory = "compact"
 	ErrorCategorySubagent  ErrorCategory = "subagent"
 	ErrorCategoryStreaming ErrorCategory = "streaming"
+	ErrorCategorySession   ErrorCategory = "session"
 	ErrorCategoryHook      ErrorCategory = "hook"
 	ErrorCategoryConfig    ErrorCategory = "config"
 )

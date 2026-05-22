@@ -115,8 +115,26 @@ method-level details while keeping this page as a navigation aid.
 
 ## Sessions and Subagents
 
+- `CurrentSessionSchemaVersion`
 - `SessionSnapshot`
 - `NewSessionSnapshot`
+- `ValidateSessionSnapshot`
+- `SessionRecord`
+- `NewSessionRecord`
+- `ValidateSessionRecord`
+- `SessionStore`
+- `SessionEventLog`
+- `SessionEvent`
+- `SessionEventType`
+- `SessionEventRunStarted`, `SessionEventRunCompleted`,
+  `SessionEventRunFailed`, `SessionEventSnapshotSaved`
+- `MemorySessionStore`
+- `NewMemorySessionStore`
+- `SessionPersistenceError`
+- `ErrSessionNotFound`
+- `ErrSessionVersionMismatch`
+- `ErrSessionInvalidRecord`
+- `ErrSessionEventConflict`
 - `Reset`
 - `Snapshot`
 - `Restore`
