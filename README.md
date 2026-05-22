@@ -2,7 +2,7 @@
 
 A small Go SDK for building agents with managed conversation state, tools,
 approval checks, streaming, MCP integration, session snapshots, hooks, observers,
-skills, compaction, and subagents.
+skills, compaction, subagents, and eval/replay test helpers.
 
 The SDK keeps provider credentials, external process deployment, approval UI,
 durable storage, and telemetry exporters outside the core runtime. Applications
@@ -167,6 +167,8 @@ The SDK provides:
   budget controls.
 - Stable telemetry attribute and metric label names for logs, metrics, and
   traces.
+- Public scripted model, transcript, replay, and assertion helpers for
+  deterministic agent evals in Go tests.
 - Custom request ID generation from safe lifecycle metadata for application
   tracing and logging conventions.
 - Structured `AgentError` values and sentinel errors.

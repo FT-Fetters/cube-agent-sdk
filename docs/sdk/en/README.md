@@ -17,6 +17,8 @@ Applications connect those pieces through Go interfaces and options.
 - [Streaming](./streaming.md): incremental assistant output with `RunStream`.
 - [MCP](./mcp.md): MCP server metadata and stdio, HTTP, and SSE tool bridging.
 - [Sessions](./sessions.md): reset, snapshot, restore, and fork.
+- [Evals and Replay](./evals.md): scripted models, golden transcripts, replay,
+  and test assertions.
 - [Approvals](./approvals.md): built-in policies and production approval flows.
 - [Observability](./observability.md): hooks, observers, stable telemetry names,
   and sanitized telemetry.
@@ -38,6 +40,7 @@ Applications connect those pieces through Go interfaces and options.
 - Tool descriptors, tool argument schemas, and preflight validation.
 - MCP stdio, HTTP, and SSE clients with MCP-to-tool bridging.
 - Session reset, snapshot, restore, and fork operations.
+- Scripted model, eval transcript, replay, and assertion helpers for CI tests.
 - Approval policies, hooks, observers, and sanitized lifecycle metadata.
 - Compaction and subagent orchestration primitives.
 

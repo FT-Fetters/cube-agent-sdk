@@ -45,7 +45,7 @@
     - schema 生成和运行时校验保持一致。
     - 错误信息能指出具体参数路径，且不会泄漏敏感参数值。
 
-- [ ] **6. Agent eval 与 replay 测试工具**
+- [x] **6. Agent eval 与 replay 测试工具**
   - 提供测试 harness，帮助 SDK 使用者录制、回放和断言 agent 行为。
   - 验收目标：
     - 支持 scripted fake model、golden transcript、tool call 断言和 observation 断言。

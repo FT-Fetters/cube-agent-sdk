@@ -173,6 +173,49 @@ method-level details while keeping this page as a navigation aid.
 - `WithCompactor`
 - `WithTokenCounter`
 
+## Evals and Replay
+
+- `EvalTranscriptSchemaVersion`
+- `ScriptedModelStep`
+- `ScriptedResponse`
+- `ScriptedError`
+- `ScriptedModel`
+- `NewScriptedModel`
+- `ScriptedStreamStep`
+- `ScriptedStreamEvents`
+- `ScriptedStreamError`
+- `ScriptedStreamModel`
+- `NewScriptedStreamModel`
+- `EvalRecorder`
+- `NewEvalRecorder`
+- `RunTranscript`
+- `ReplayRunTranscript`
+- `ReplaySessionEvents`
+- `TranscriptModelExchange`
+- `TranscriptModelRequest`
+- `TranscriptModelResponse`
+- `TranscriptToolDescriptor`
+- `TranscriptMCPServer`
+- `TranscriptSkill`
+- `TranscriptStreamExchange`
+- `TranscriptStreamEvent`
+- `TranscriptEvent`
+- `TranscriptToolCall`
+- `TranscriptObservation`
+- `TranscriptSessionEvent`
+- `TranscriptMetadata`
+- `TranscriptOutcome`
+- `ToolCallExpectation`
+- `ObservationExpectation`
+- `AssertToolCalled`
+- `AssertToolCall`
+- `AssertApprovalDenied`
+- `AssertObservation`
+- `AssertFinalMessage`
+- `AssertFinalError`
+- `AssertEventOrder`
+- `AssertSessionEventOrder`
+
 ## Observability
 
 - `Hook`

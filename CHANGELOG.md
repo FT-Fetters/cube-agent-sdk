@@ -32,6 +32,8 @@ release. Dates use ISO 8601 format.
 - Dependency-free session persistence contracts, append-only session event logs,
   in-memory store/log implementation, schema/version validation, and session
   persistence error sentinels.
+- Dependency-free eval and replay test helpers with scripted models, stable
+  transcripts, replay assertions, and stream failure scripting.
 - Structured errors and enriched lifecycle event metadata.
 - Production-oriented observer interface with sanitized event details.
 - Safer approval policy helpers for deny-by-default, allowlists, and tool risk
