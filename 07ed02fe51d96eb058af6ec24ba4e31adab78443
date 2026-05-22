@@ -1,0 +1,50 @@
+mcp_stdio.go
+  7356d394ecf58fc7 5,7,12-14,17-20,22-23,25-47,53-67
+internal/mcp/stdio/stdio.go
+  7356d394ecf58fc7 19,23,26-28,48-51,84,91-92,203-211,221,267-273,467,511
+internal/mcp/http.go
+  7356d394ecf58fc7 1-654
+docs/sdk/zh/README.md
+  7356d394ecf58fc7 17,36,44
+CHANGELOG.md
+  7356d394ecf58fc7 26-28
+docs/sdk/en/README.md
+  7356d394ecf58fc7 18,39,48
+mcp_http_sse_test.go
+  7356d394ecf58fc7 1-745
+docs/sdk/zh/mcp.md
+  7356d394ecf58fc7 3-4,25,27-28,31,53-54,56-82,86-88
+internal/mcp/client.go
+  7356d394ecf58fc7 1-472
+docs/sdk/en/api-reference.md
+  7356d394ecf58fc7 109-110,112-113,115-116
+README.md
+  7356d394ecf58fc7 162,177,403,420-421,424,446-478
+SDK_FEATURE_ROADMAP_CHECKLIST.md
+  7356d394ecf58fc7 32
+docs/sdk/zh/api-reference.md
+  7356d394ecf58fc7 109-110,112-113,115-116
+docs/sdk/en/mcp.md
+  7356d394ecf58fc7 4-5,26,28,32,54-56,58-85,89-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "07ed02fe51d96eb058af6ec24ba4e31adab78443",
+  "prompts": {
+    "7356d394ecf58fc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4e91-2667-7072-a01d-9004a91b2c6e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 2245,
+      "total_deletions": 249,
+      "accepted_lines": 3221,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/b6ce203062920221b2f536e4c92659be1f0a4dede7594b28d9ec151f13d5e91e"
+    }
+  }
+}
