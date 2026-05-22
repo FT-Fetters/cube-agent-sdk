@@ -78,6 +78,7 @@ method-level details while keeping this page as a navigation aid.
 - `ToolDescriptor`
 - `ToolParametersSchema`
 - `ToolParametersSchemaProvider`
+- `ToolParametersSchemaFromStruct`
 - `ToolRiskProvider`
 - `ToolRisk`
 - `ToolRiskRead`, `ToolRiskWrite`, `ToolRiskDestructive`, `ToolRiskUnspecified`

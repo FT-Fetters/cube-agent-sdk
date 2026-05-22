@@ -75,6 +75,12 @@ const (
 type ToolParametersSchema = schema.ToolParametersSchema
 type ToolValidationError = schema.ToolValidationError
 
+// ToolParametersSchemaFromStruct builds a lightweight tool parameter schema from
+// exported struct fields, json tags, and supported schema constraint tags.
+func ToolParametersSchemaFromStruct(value any) (*ToolParametersSchema, error) {
+	return schema.ToolParametersSchemaFromStruct(value)
+}
+
 var ErrToolValidation = schema.ErrToolValidation
 
 type ToolDescriptor = core.ToolDescriptor

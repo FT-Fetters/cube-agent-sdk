@@ -17,6 +17,8 @@ release. Dates use ISO 8601 format.
 - Unified model factory for selecting provider API type from configuration.
 - Anthropic Messages adapter for `/v1/messages` endpoints.
 - Structured tool schemas and validation before tool execution.
+- Struct-derived tool parameter schemas and richer validation constraints for
+  enum, default, min/max, pattern, and additionalProperties.
 - Streaming model interface and agent streaming API.
 - Provider-native streaming for OpenAI-compatible chat completions, OpenAI
   Responses, and Anthropic Messages adapters, including final usage telemetry

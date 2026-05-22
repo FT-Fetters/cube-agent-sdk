@@ -54,11 +54,37 @@ bot, err := agent.New(cfg, model, agent.WithTools(lookup))
 
 `ToolParametersSchema` 是面向 function calling 参数的轻量 JSON Schema 子集。它
 支持 string、number、integer、boolean、object 和 array 类型，也支持 object
-properties、required 字段和 array item schema。
+properties、required 字段、array item schema、`enum`、`default`、数字
+`minimum`/`maximum`、字符串 `minLength`/`maxLength`、数组
+`minItems`/`maxItems`、`pattern` 和布尔型 `additionalProperties`。
 
-如果工具没有 schema，SDK 会保留兼容路径，不做执行前参数校验。
+`default` 会输出到 provider schema，但不会被注入到工具参数中。如果工具没有
+schema，SDK 会保留兼容路径，不做执行前参数校验。
 
-Schema 校验失败会包装 `ErrToolValidation`，并且不会调用工具函数。
+Schema 校验失败会包装 `ErrToolValidation`，错误中包含精确参数路径，不包含被拒绝的
+参数值，并且不会调用工具函数。
+
+## 结构体 Schema 生成
+
+可以使用 `ToolParametersSchemaFromStruct` 从导出的结构体字段生成 schema，不引入额外
+依赖：
+
+```go
+type LookupArgs struct {
+	AccountID string   `json:"account_id" description:"Application account identifier" required:"true" pattern:"^acct_[a-z0-9]+$"`
+	Tier      string   `json:"tier,omitempty" enum:"free,pro,enterprise" default:"pro"`
+	Limit     int      `json:"limit,omitempty" min:"1" max:"50" default:"10"`
+	Tags      []string `json:"tags,omitempty" minItems:"1" maxItems:"5"`
+}
+
+parameters, err := agent.ToolParametersSchemaFromStruct(LookupArgs{})
+```
+
+支持的 tag 包括 `json`、`description`、`required`、`enum`、`default`、`min`、
+`max`、`minLength`、`maxLength`、`minItems`、`maxItems`、`pattern` 和
+`additionalProperties`。生成器支持嵌套结构体、指针、切片、数组、基础标量类型，
+以及 `json:"-"` 忽略字段。map、interface、函数、channel、完整 JSON Schema 组合和
+默认参数注入不在这个轻量子集内。
 
 ## 风险标签
 

@@ -331,10 +331,36 @@ lookup := agent.ToolFunc{
 }
 ```
 
-Schema validation rejects missing or wrong-typed arguments with
-`ErrToolValidation`. The SDK validates the call and executes the function, but
-the application owns the business logic, data access, side effects, and result
-content.
+Schema validation rejects missing, wrong-typed, or constraint-violating
+arguments with `ErrToolValidation`. Validation errors include the parameter path
+but not the rejected value. The supported subset intentionally stays small:
+`enum`, `default`, numeric `minimum`/`maximum`, string `minLength`/`maxLength`,
+array `minItems`/`maxItems`, `pattern`, and boolean `additionalProperties`.
+Defaults are emitted to providers but are not injected into tool arguments.
+
+You can also generate the schema from exported struct fields:
+
+```go
+type LookupArgs struct {
+	AccountID string   `json:"account_id" description:"Application account identifier" required:"true" pattern:"^acct_[a-z0-9]+$"`
+	Tier      string   `json:"tier,omitempty" enum:"free,pro,enterprise" default:"pro"`
+	Limit     int      `json:"limit,omitempty" min:"1" max:"50" default:"10"`
+	Tags      []string `json:"tags,omitempty" minItems:"1" maxItems:"5"`
+}
+
+parameters, err := agent.ToolParametersSchemaFromStruct(LookupArgs{})
+if err != nil {
+	return err
+}
+```
+
+The generator supports `json`, `description`, `required`, `enum`, `default`,
+`min`, `max`, `minLength`, `maxLength`, `minItems`, `maxItems`, `pattern`, and
+`additionalProperties` tags on exported fields. It supports nested structs,
+pointers, slices, arrays, primitive scalar types, and `json:"-"`; maps,
+interfaces, functions, and channels are outside this lightweight subset. The
+SDK validates the call and executes the function, but the application owns the
+business logic, data access, side effects, and result content.
 
 ## Streaming
 

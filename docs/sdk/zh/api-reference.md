@@ -78,6 +78,7 @@
 - `ToolDescriptor`
 - `ToolParametersSchema`
 - `ToolParametersSchemaProvider`
+- `ToolParametersSchemaFromStruct`
 - `ToolRiskProvider`
 - `ToolRisk`
 - `ToolRiskRead`、`ToolRiskWrite`、`ToolRiskDestructive`、`ToolRiskUnspecified`

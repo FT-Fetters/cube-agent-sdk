@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"regexp"
+	"unicode/utf8"
 )
 
 var ErrToolValidation = errors.New("agent: tool validation failed")
@@ -23,12 +25,24 @@ const (
 )
 
 // ToolParametersSchema is a lightweight JSON Schema subset for function calling arguments.
+// Default is emitted to model providers but validation does not inject default
+// values into missing tool arguments.
 type ToolParametersSchema struct {
-	Type        SchemaType
-	Description string
-	Properties  map[string]ToolParametersSchema
-	Required    []string
-	Items       *ToolParametersSchema
+	Type                 SchemaType
+	Description          string
+	Properties           map[string]ToolParametersSchema
+	Required             []string
+	Items                *ToolParametersSchema
+	Enum                 []any
+	Default              any
+	Minimum              *float64
+	Maximum              *float64
+	MinLength            *int
+	MaxLength            *int
+	MinItems             *int
+	MaxItems             *int
+	Pattern              string
+	AdditionalProperties *bool
 }
 
 // JSONSchema converts the typed schema into the map shape expected by model providers.
@@ -39,6 +53,36 @@ func (s ToolParametersSchema) JSONSchema() map[string]any {
 	}
 	if s.Description != "" {
 		schema["description"] = s.Description
+	}
+	if len(s.Enum) > 0 {
+		schema["enum"] = cloneAnySlice(s.Enum)
+	}
+	if s.Default != nil {
+		schema["default"] = cloneJSONValue(s.Default)
+	}
+	if s.Minimum != nil {
+		schema["minimum"] = *s.Minimum
+	}
+	if s.Maximum != nil {
+		schema["maximum"] = *s.Maximum
+	}
+	if s.MinLength != nil {
+		schema["minLength"] = *s.MinLength
+	}
+	if s.MaxLength != nil {
+		schema["maxLength"] = *s.MaxLength
+	}
+	if s.MinItems != nil {
+		schema["minItems"] = *s.MinItems
+	}
+	if s.MaxItems != nil {
+		schema["maxItems"] = *s.MaxItems
+	}
+	if s.Pattern != "" {
+		schema["pattern"] = s.Pattern
+	}
+	if s.AdditionalProperties != nil {
+		schema["additionalProperties"] = *s.AdditionalProperties
 	}
 	if len(s.Properties) > 0 {
 		properties := make(map[string]any, len(s.Properties))
@@ -99,6 +143,17 @@ func Clone(schema *ToolParametersSchema) *ToolParametersSchema {
 	if len(schema.Required) > 0 {
 		cloned.Required = append([]string(nil), schema.Required...)
 	}
+	if len(schema.Enum) > 0 {
+		cloned.Enum = cloneAnySlice(schema.Enum)
+	}
+	cloned.Default = cloneJSONValue(schema.Default)
+	cloned.Minimum = cloneFloat64Pointer(schema.Minimum)
+	cloned.Maximum = cloneFloat64Pointer(schema.Maximum)
+	cloned.MinLength = cloneIntPointer(schema.MinLength)
+	cloned.MaxLength = cloneIntPointer(schema.MaxLength)
+	cloned.MinItems = cloneIntPointer(schema.MinItems)
+	cloned.MaxItems = cloneIntPointer(schema.MaxItems)
+	cloned.AdditionalProperties = cloneBoolPointer(schema.AdditionalProperties)
 	cloned.Items = Clone(schema.Items)
 	return &cloned
 }
@@ -145,13 +200,26 @@ func validateSchemaValue(toolName, parameter string, value any, schema ToolParam
 				return err
 			}
 		}
+		if schema.AdditionalProperties != nil && !*schema.AdditionalProperties {
+			for name := range object {
+				if _, exists := schema.Properties[name]; !exists {
+					return newToolValidationError(toolName, childParameter(parameter, name), "unexpected parameter")
+				}
+			}
+		}
 	case SchemaTypeArray:
 		items, ok := asArray(value)
 		if !ok {
 			return newToolValidationError(toolName, parameter, "expected array")
 		}
+		if schema.MinItems != nil && len(items) < *schema.MinItems {
+			return newToolValidationError(toolName, parameter, "failed minItems constraint")
+		}
+		if schema.MaxItems != nil && len(items) > *schema.MaxItems {
+			return newToolValidationError(toolName, parameter, "failed maxItems constraint")
+		}
 		if schema.Items == nil {
-			return nil
+			return validateEnumConstraint(toolName, parameter, value, schema)
 		}
 		for index, item := range items {
 			if err := validateSchemaValue(toolName, childParameter(parameter, fmt.Sprintf("[%d]", index)), item, *schema.Items); err != nil {
@@ -159,16 +227,40 @@ func validateSchemaValue(toolName, parameter string, value any, schema ToolParam
 			}
 		}
 	case SchemaTypeString:
-		if _, ok := value.(string); !ok {
+		text, ok := value.(string)
+		if !ok {
 			return newToolValidationError(toolName, parameter, "expected string")
 		}
+		if schema.MinLength != nil && utf8.RuneCountInString(text) < *schema.MinLength {
+			return newToolValidationError(toolName, parameter, "failed minLength constraint")
+		}
+		if schema.MaxLength != nil && utf8.RuneCountInString(text) > *schema.MaxLength {
+			return newToolValidationError(toolName, parameter, "failed maxLength constraint")
+		}
+		if schema.Pattern != "" {
+			matched, err := regexp.MatchString(schema.Pattern, text)
+			if err != nil {
+				return newToolValidationError(toolName, parameter, "invalid pattern constraint")
+			}
+			if !matched {
+				return newToolValidationError(toolName, parameter, "failed pattern constraint")
+			}
+		}
 	case SchemaTypeNumber:
-		if !isNumber(value) {
+		number, ok := numberAsFloat64(value)
+		if !ok {
 			return newToolValidationError(toolName, parameter, "expected number")
+		}
+		if err := validateNumericBounds(toolName, parameter, number, schema); err != nil {
+			return err
 		}
 	case SchemaTypeInteger:
 		if !isInteger(value) {
 			return newToolValidationError(toolName, parameter, "expected integer")
+		}
+		number, _ := numberAsFloat64(value)
+		if err := validateNumericBounds(toolName, parameter, number, schema); err != nil {
+			return err
 		}
 	case SchemaTypeBoolean:
 		if _, ok := value.(bool); !ok {
@@ -177,7 +269,27 @@ func validateSchemaValue(toolName, parameter string, value any, schema ToolParam
 	default:
 		return newToolValidationError(toolName, parameter, fmt.Sprintf("unsupported schema type %q", schema.Type))
 	}
+	return validateEnumConstraint(toolName, parameter, value, schema)
+}
+
+func validateNumericBounds(toolName, parameter string, number float64, schema ToolParametersSchema) error {
+	if schema.Minimum != nil && number < *schema.Minimum {
+		return newToolValidationError(toolName, parameter, "failed minimum constraint")
+	}
+	if schema.Maximum != nil && number > *schema.Maximum {
+		return newToolValidationError(toolName, parameter, "failed maximum constraint")
+	}
 	return nil
+}
+
+func validateEnumConstraint(toolName, parameter string, value any, schema ToolParametersSchema) error {
+	if len(schema.Enum) == 0 {
+		return nil
+	}
+	if enumContains(schema.Type, schema.Enum, value) {
+		return nil
+	}
+	return newToolValidationError(toolName, parameter, "failed enum constraint")
 }
 
 func newToolValidationError(toolName, parameter, message string) *ToolValidationError {
@@ -239,20 +351,26 @@ func asArray(value any) ([]any, bool) {
 }
 
 func isNumber(value any) bool {
+	_, ok := numberAsFloat64(value)
+	return ok
+}
+
+func numberAsFloat64(value any) (float64, bool) {
 	switch number := value.(type) {
 	case int, int8, int16, int32, int64:
-		return true
+		return float64(reflect.ValueOf(number).Int()), true
 	case uint, uint8, uint16, uint32, uint64:
-		return true
+		return float64(reflect.ValueOf(number).Uint()), true
 	case float32:
-		return isFinite(float64(number))
+		parsed := float64(number)
+		return parsed, isFinite(parsed)
 	case float64:
-		return isFinite(number)
+		return number, isFinite(number)
 	case json.Number:
 		parsed, err := number.Float64()
-		return err == nil && isFinite(parsed)
+		return parsed, err == nil && isFinite(parsed)
 	default:
-		return false
+		return 0, false
 	}
 }
 
@@ -280,4 +398,68 @@ func isInteger(value any) bool {
 
 func isFinite(number float64) bool {
 	return !math.IsNaN(number) && !math.IsInf(number, 0)
+}
+
+func enumContains(schemaType SchemaType, enum []any, value any) bool {
+	for _, candidate := range enum {
+		if schemaType == SchemaTypeNumber || schemaType == SchemaTypeInteger {
+			candidateNumber, candidateOK := numberAsFloat64(candidate)
+			valueNumber, valueOK := numberAsFloat64(value)
+			if candidateOK && valueOK && candidateNumber == valueNumber {
+				return true
+			}
+			continue
+		}
+		if reflect.DeepEqual(candidate, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneAnySlice(values []any) []any {
+	cloned := make([]any, len(values))
+	for i, value := range values {
+		cloned[i] = cloneJSONValue(value)
+	}
+	return cloned
+}
+
+func cloneJSONValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, nested := range typed {
+			cloned[key] = cloneJSONValue(nested)
+		}
+		return cloned
+	case []any:
+		return cloneAnySlice(typed)
+	default:
+		return value
+	}
+}
+
+func cloneFloat64Pointer(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

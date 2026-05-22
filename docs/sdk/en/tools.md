@@ -55,13 +55,41 @@ Optional extensions:
 
 `ToolParametersSchema` is a lightweight JSON Schema subset for function calling
 arguments. It supports string, number, integer, boolean, object, and array
-types, including object properties, required fields, and array item schemas.
+types, including object properties, required fields, array item schemas,
+`enum`, `default`, numeric `minimum`/`maximum`, string
+`minLength`/`maxLength`, array `minItems`/`maxItems`, `pattern`, and boolean
+`additionalProperties`.
 
-If a tool has no schema, the SDK keeps the compatibility path and executes it
-without preflight argument validation.
+Defaults are emitted in the provider schema but are not injected into tool
+arguments. If a tool has no schema, the SDK keeps the compatibility path and
+executes it without preflight argument validation.
 
-Schema validation failures wrap `ErrToolValidation`, and the tool function is
-not called.
+Schema validation failures wrap `ErrToolValidation`, include the exact parameter
+path, do not include rejected argument values, and prevent the tool function
+from being called.
+
+## Struct Schema Generation
+
+Use `ToolParametersSchemaFromStruct` to derive a schema from exported struct
+fields without adding dependencies:
+
+```go
+type LookupArgs struct {
+	AccountID string   `json:"account_id" description:"Application account identifier" required:"true" pattern:"^acct_[a-z0-9]+$"`
+	Tier      string   `json:"tier,omitempty" enum:"free,pro,enterprise" default:"pro"`
+	Limit     int      `json:"limit,omitempty" min:"1" max:"50" default:"10"`
+	Tags      []string `json:"tags,omitempty" minItems:"1" maxItems:"5"`
+}
+
+parameters, err := agent.ToolParametersSchemaFromStruct(LookupArgs{})
+```
+
+Supported tags are `json`, `description`, `required`, `enum`, `default`, `min`,
+`max`, `minLength`, `maxLength`, `minItems`, `maxItems`, `pattern`, and
+`additionalProperties`. The generator supports nested structs, pointers,
+slices, arrays, primitive scalar types, and omitted fields with `json:"-"`.
+Maps, interfaces, functions, channels, full JSON Schema composition, and default
+argument injection are intentionally outside this subset.
 
 ## Risk Labels
 

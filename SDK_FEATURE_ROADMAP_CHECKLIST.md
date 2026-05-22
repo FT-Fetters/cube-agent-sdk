@@ -37,7 +37,7 @@
     - 支持 server health、连接重试、工具列表刷新和关闭清理。
     - MCP 环境变量、URL 参数、工具参数和工具结果继续满足 redaction 约束。
 
-- [ ] **5. Tool schema 生成与更丰富校验**
+- [x] **5. Tool schema 生成与更丰富校验**
   - 提供 Go struct 到 tool schema 的生成工具，并扩展当前轻量 JSON Schema 子集。
   - 验收目标：
     - 可从结构体 tag 生成工具参数 schema。

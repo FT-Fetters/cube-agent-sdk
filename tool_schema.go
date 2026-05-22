@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"hash"
+	"math"
 	"sort"
 
 	"github.com/cubence/cube-agent-sdk/internal/schema"
@@ -67,6 +69,23 @@ func writeToolParametersSchemaHash(hasher hash.Hash, parameters *ToolParametersS
 	writeToolSchemaHashString(hasher, string(parameters.Type))
 	writeToolSchemaHashString(hasher, parameters.Description)
 
+	writeToolSchemaHashUint64(hasher, uint64(len(parameters.Enum)))
+	for _, enumValue := range parameters.Enum {
+		writeToolSchemaHashAny(hasher, enumValue)
+	}
+	writeToolSchemaHashBool(hasher, parameters.Default != nil)
+	if parameters.Default != nil {
+		writeToolSchemaHashAny(hasher, parameters.Default)
+	}
+	writeToolSchemaHashOptionalFloat64(hasher, parameters.Minimum)
+	writeToolSchemaHashOptionalFloat64(hasher, parameters.Maximum)
+	writeToolSchemaHashOptionalInt(hasher, parameters.MinLength)
+	writeToolSchemaHashOptionalInt(hasher, parameters.MaxLength)
+	writeToolSchemaHashOptionalInt(hasher, parameters.MinItems)
+	writeToolSchemaHashOptionalInt(hasher, parameters.MaxItems)
+	writeToolSchemaHashString(hasher, parameters.Pattern)
+	writeToolSchemaHashOptionalBool(hasher, parameters.AdditionalProperties)
+
 	required := append([]string(nil), parameters.Required...)
 	sort.Strings(required)
 	writeToolSchemaHashUint64(hasher, uint64(len(required)))
@@ -100,6 +119,36 @@ func writeToolSchemaHashBool(hasher hash.Hash, value bool) {
 		return
 	}
 	writeToolSchemaHashUint64(hasher, 0)
+}
+
+func writeToolSchemaHashOptionalBool(hasher hash.Hash, value *bool) {
+	writeToolSchemaHashBool(hasher, value != nil)
+	if value != nil {
+		writeToolSchemaHashBool(hasher, *value)
+	}
+}
+
+func writeToolSchemaHashOptionalInt(hasher hash.Hash, value *int) {
+	writeToolSchemaHashBool(hasher, value != nil)
+	if value != nil {
+		writeToolSchemaHashUint64(hasher, uint64(int64(*value)))
+	}
+}
+
+func writeToolSchemaHashOptionalFloat64(hasher hash.Hash, value *float64) {
+	writeToolSchemaHashBool(hasher, value != nil)
+	if value != nil {
+		writeToolSchemaHashUint64(hasher, math.Float64bits(*value))
+	}
+}
+
+func writeToolSchemaHashAny(hasher hash.Hash, value any) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		writeToolSchemaHashString(hasher, err.Error())
+		return
+	}
+	writeToolSchemaHashString(hasher, string(encoded))
 }
 
 func writeToolSchemaHashUint64(hasher hash.Hash, value uint64) {
