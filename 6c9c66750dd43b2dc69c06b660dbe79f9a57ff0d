@@ -1,0 +1,76 @@
+docs/sdk/zh/tools.md
+  7356d394ecf58fc7 13-17,57,95-118
+docs/sdk/en/production.md
+  7356d394ecf58fc7 30-34,36,116-118,122-142,174,206,217,315-316,324
+docs/sdk/zh/api-reference.md
+  7356d394ecf58fc7 94-98,293-299,333,367-368
+redaction_regression_test.go
+  7356d394ecf58fc7 227-228
+SDK_FEATURE_ROADMAP_CHECKLIST.md
+  7356d394ecf58fc7 64
+docs/sdk/zh/observability.md
+  7356d394ecf58fc7 218-224,246,251-252,260,269
+tools.go
+  7356d394ecf58fc7 8-9,13-17,45,47-49,62,71,82-86,101,114,130,143,150,168,178,186-187,209,228,234,280-351,353-364,366-374
+slog_observer_test.go
+  7356d394ecf58fc7 52-60,99-105,137-147,168-174
+docs/sdk/en/approvals.md
+  7356d394ecf58fc7 33-63,78
+docs/sdk/zh/production.md
+  7356d394ecf58fc7 26-28,30,106-107,111-131,158,184,194,280-281,288
+docs/sdk/en/tools.md
+  7356d394ecf58fc7 14-18,58,100-123
+telemetry_attributes_test.go
+  7356d394ecf58fc7 36-42,77,104-105,163-164
+tool_safety_test.go
+  7356d394ecf58fc7 1-252
+errors.go
+  7356d394ecf58fc7 28
+docs/sdk/en/mcp.md
+  7356d394ecf58fc7 48-57,97-101,108
+docs/sdk/zh/mcp.md
+  7356d394ecf58fc7 47-56
+agent.go
+  7356d394ecf58fc7 32-34,120-131
+docs/sdk/en/observability.md
+  7356d394ecf58fc7 231-237,259,265-266,274,285
+docs/sdk/zh/approvals.md
+  7356d394ecf58fc7 32-62,77
+docs/sdk/en/api-reference.md
+  7356d394ecf58fc7 94-98,293-299,333,345-347,373-374
+telemetry_attributes.go
+  7356d394ecf58fc7 33-39,100-106,130,149-150,184-185
+CHANGELOG.md
+  7356d394ecf58fc7 41-42
+internal/core/types.go
+  7356d394ecf58fc7 5-7,10,543-569,608,625-633,648-653,834-835,917-934,961-962,1001,1057-1175
+tool_safety.go
+  7356d394ecf58fc7 1-72
+slog_observer.go
+  7356d394ecf58fc7 179,197-226,315,337-355,357-358
+observation_contract_test.go
+  7356d394ecf58fc7 597,642-643
+aliases.go
+  7356d394ecf58fc7 88-90,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "6c9c66750dd43b2dc69c06b660dbe79f9a57ff0d",
+  "prompts": {
+    "7356d394ecf58fc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4e91-2667-7072-a01d-9004a91b2c6e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 1094,
+      "total_deletions": 91,
+      "accepted_lines": 2264,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/19118d5b7f8832ef933d85d155e51daae432316103a39bf2da1aeb250a5e3244"
+    }
+  }
+}
