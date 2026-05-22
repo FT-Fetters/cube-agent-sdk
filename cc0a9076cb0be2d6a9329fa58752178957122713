@@ -1,0 +1,24 @@
+SDK_FEATURE_ROADMAP_CHECKLIST.md
+  7356d394ecf58fc7 1-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "cc0a9076cb0be2d6a9329fa58752178957122713",
+  "prompts": {
+    "7356d394ecf58fc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4e91-2667-7072-a01d-9004a91b2c6e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 85,
+      "total_deletions": 0,
+      "accepted_lines": 85,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/4506c57cca3448978f6b0261de40fcd7d4545c529a05c8dfbbba6b660761add9"
+    }
+  }
+}
