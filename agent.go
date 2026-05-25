@@ -796,6 +796,12 @@ func (a *Agent) forwardStreamRound(ctx context.Context, state activeStreamRound,
 			if !sendStreamEvent(ctx, out, event) {
 				return streamRoundOutcome{}, false
 			}
+		case StreamEventThinkingDelta:
+			// Thinking deltas are caller-visible provider reasoning text, but they are
+			// not part of the assistant message committed to conversation context.
+			if !sendStreamEvent(ctx, out, StreamEvent{Type: event.Type, AgentID: event.AgentID, Delta: event.Delta}) {
+				return streamRoundOutcome{}, false
+			}
 		case StreamEventDone:
 			message := event.Message
 			if message.Role == "" {

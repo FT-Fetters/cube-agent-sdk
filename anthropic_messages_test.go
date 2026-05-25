@@ -437,16 +437,82 @@ func TestAnthropicMessagesModelStreamPreservesThinkingMetadataOnDone(t *testing.
 		t.Fatal(err)
 	}
 	got := collectStreamEvents(t, events)
-	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26})
-	rawContent, ok := got[2].Message.Metadata["anthropic_messages_content"].([]map[string]any)
+	if len(got) != 4 {
+		t.Fatalf("stream events = %#v, want thinking, delta, delta, done", got)
+	}
+	if got[0].Type != StreamEventThinkingDelta || got[0].Delta != "Need to answer carefully." {
+		t.Fatalf("thinking stream event = %#v, want thinking delta", got[0])
+	}
+	if got[1].Type != StreamEventDelta || got[1].Delta != "Hel" {
+		t.Fatalf("first text stream event = %#v, want Hel delta", got[1])
+	}
+	if got[2].Type != StreamEventDelta || got[2].Delta != "lo" {
+		t.Fatalf("second text stream event = %#v, want lo delta", got[2])
+	}
+	if got[3].Type != StreamEventDone || got[3].Message.Content != "Hello" || got[3].Usage != (TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26}) {
+		t.Fatalf("done stream event = %#v, want final Hello with usage", got[3])
+	}
+	rawContent, ok := got[3].Message.Metadata["anthropic_messages_content"].([]map[string]any)
 	if !ok || len(rawContent) != 2 {
-		t.Fatalf("metadata raw content = %#v, want thinking and text blocks", got[2].Message.Metadata["anthropic_messages_content"])
+		t.Fatalf("metadata raw content = %#v, want thinking and text blocks", got[3].Message.Metadata["anthropic_messages_content"])
 	}
 	if rawContent[0]["type"] != "thinking" || rawContent[0]["thinking"] != "Need to answer carefully." || rawContent[0]["signature"] != "stream-signature-1" {
 		t.Fatalf("thinking metadata = %#v, want reconstructed thinking block", rawContent[0])
 	}
 	if rawContent[1]["type"] != "text" || rawContent[1]["text"] != "Hello" {
 		t.Fatalf("text metadata = %#v, want reconstructed text block", rawContent[1])
+	}
+}
+
+func TestAnthropicMessagesModelStreamEmitsThinkingDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Need to "}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"answer carefully."}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"stream-signature-1"}}`)
+		writeSSEEvent(t, w, "content_block_stop", `{"type":"content_block_stop","index":0}`)
+		writeSSEEvent(t, w, "content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Hello"}}`)
+		writeSSEEvent(t, w, "message_stop", `{"type":"message_stop"}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if len(got) != 4 {
+		t.Fatalf("stream events = %#v, want thinking, thinking, delta, done", got)
+	}
+	if got[0].Type != StreamEventThinkingDelta || got[0].Delta != "Need to " {
+		t.Fatalf("first stream event = %#v, want thinking delta", got[0])
+	}
+	if got[1].Type != StreamEventThinkingDelta || got[1].Delta != "answer carefully." {
+		t.Fatalf("second stream event = %#v, want thinking delta", got[1])
+	}
+	if got[2].Type != StreamEventDelta || got[2].Delta != "Hello" {
+		t.Fatalf("third stream event = %#v, want text delta", got[2])
+	}
+	if got[3].Type != StreamEventDone || got[3].Message.Content != "Hello" {
+		t.Fatalf("done stream event = %#v, want final text only", got[3])
+	}
+	rawContent, ok := got[3].Message.Metadata["anthropic_messages_content"].([]map[string]any)
+	if !ok || len(rawContent) != 2 {
+		t.Fatalf("metadata raw content = %#v, want thinking and text blocks", got[3].Message.Metadata["anthropic_messages_content"])
+	}
+	if rawContent[0]["thinking"] != "Need to answer carefully." || rawContent[0]["signature"] != "stream-signature-1" {
+		t.Fatalf("thinking metadata = %#v, want reconstructed thinking block", rawContent[0])
 	}
 }
 

@@ -3,7 +3,7 @@
 Streaming models implement `StreamModel` in addition to `Model`. The built-in
 OpenAI-compatible chat completions, OpenAI Responses, and Anthropic Messages
 adapters support `RunStream` with provider-native streaming. Use `RunStream`
-when callers need incremental assistant text.
+when callers need incremental assistant text or provider thinking/reasoning text.
 
 ```go
 events, err := bot.RunStream(ctx, "Write a short summary.")
@@ -18,6 +18,8 @@ for event := range events {
 	switch event.Type {
 	case agent.StreamEventDelta:
 		fmt.Print(event.Delta)
+	case agent.StreamEventThinkingDelta:
+		fmt.Printf("thinking: %s", event.Delta)
 	case agent.StreamEventToolCallStart:
 		fmt.Printf("tool starting: %s\n", event.ToolCall.Name)
 	case agent.StreamEventToolCallDone:
@@ -40,6 +42,7 @@ the channel without cancellation can leave forwarding blocked.
 ## Event Types
 
 - `StreamEventDelta`: incremental assistant text.
+- `StreamEventThinkingDelta`: incremental provider thinking or reasoning text. It is delivered to the caller in real time and is not appended to the final assistant message content.
 - `StreamEventToolCallStart`: safe tool-call boundary metadata such as tool call ID, name, and provider stream index. It does not include tool arguments.
 - `StreamEventToolCallDone`: safe tool-call boundary metadata emitted when the streamed tool call is complete enough for the provider adapter to reconstruct it. It does not include tool arguments.
 - `StreamEventDone`: final assistant message, provider token usage, and safe finish metadata when available.
@@ -47,16 +50,18 @@ the channel without cancellation can leave forwarding blocked.
 
 The SDK commits the final assistant message only after a done event is
 forwarded to the caller. Interrupted delta streams and canceled abandoned streams
-do not persist partial or undelivered assistant text.
+do not persist partial or undelivered assistant text. Thinking deltas are caller
+visible only; provider-specific reasoning metadata may still be preserved on the
+final done message for continuation when the adapter supports it.
 
 Final streaming `EventAfterModel` events and observations include total stream
 duration through `Duration`. When a model reports usage on the done event, the
 same token counts are copied to `TokenUsage`. Final done events may also carry
 `Finish.Reason`, such as a provider stop or tool-call finish reason. When at
 least one delta is received, lifecycle telemetry includes sanitized
-`StreamTelemetry` with time to first token, delta count, streamed delta byte
-count, and throughput. Stream telemetry never contains the streamed text or tool
-arguments.
+`StreamTelemetry` with time to first assistant-text token, assistant-text delta
+count, streamed assistant-text byte count, and throughput. Stream telemetry never
+contains streamed text, thinking text, or tool arguments.
 
 Use `WithStreamObservations()` on a `RunStream` call when you need observer-only
 stream lifecycle telemetry for start, first delta, done, and error. The option

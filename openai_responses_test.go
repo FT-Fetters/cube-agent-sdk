@@ -299,6 +299,53 @@ func TestOpenAIResponsesModelStreamsDeltasDoneAndUsage(t *testing.T) {
 	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 13, OutputTokens: 5, TotalTokens: 18})
 }
 
+func TestOpenAIResponsesModelStreamEmitsReasoningDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "response.reasoning_summary_text.delta", `{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"Need to "}`)
+		writeSSEEvent(t, w, "response.reasoning_text.delta", `{"type":"response.reasoning_text.delta","item_id":"rs_1","output_index":0,"content_index":0,"delta":"answer carefully."}`)
+		writeSSEEvent(t, w, "response.output_text.delta", `{"type":"response.output_text.delta","delta":"Hello"}`)
+		writeSSEEvent(t, w, "response.completed", `{"type":"response.completed","response":{"output":[{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"Need to answer carefully."}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":13,"output_tokens":5,"total_tokens":18}}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAIResponsesModel(OpenAIResponsesConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if len(got) != 4 {
+		t.Fatalf("stream events = %#v, want thinking, thinking, delta, done", got)
+	}
+	if got[0].Type != StreamEventThinkingDelta || got[0].Delta != "Need to " {
+		t.Fatalf("first stream event = %#v, want thinking delta", got[0])
+	}
+	if got[1].Type != StreamEventThinkingDelta || got[1].Delta != "answer carefully." {
+		t.Fatalf("second stream event = %#v, want thinking delta", got[1])
+	}
+	if got[2].Type != StreamEventDelta || got[2].Delta != "Hello" {
+		t.Fatalf("third stream event = %#v, want text delta", got[2])
+	}
+	if got[3].Type != StreamEventDone || got[3].Message.Content != "Hello" {
+		t.Fatalf("done stream event = %#v, want final text only", got[3])
+	}
+	rawOutput, ok := got[3].Message.Metadata["openai_responses_output"].([]map[string]any)
+	if !ok || len(rawOutput) != 2 {
+		t.Fatalf("metadata raw output = %#v, want reasoning and message output", got[3].Message.Metadata["openai_responses_output"])
+	}
+	if rawOutput[0]["type"] != "reasoning" {
+		t.Fatalf("first output item = %#v, want reasoning", rawOutput[0])
+	}
+}
+
 func TestOpenAIResponsesModelStreamMapsFunctionCallEvents(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

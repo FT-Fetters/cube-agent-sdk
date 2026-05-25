@@ -384,6 +384,11 @@ func streamOpenAIResponseEvents(ctx context.Context, body io.Reader, events chan
 			}
 			content.WriteString(decoded.Delta)
 			return sendOpenAIStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDelta, Delta: decoded.Delta})
+		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			if decoded.Delta == "" {
+				return nil
+			}
+			return sendOpenAIStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventThinkingDelta, Delta: decoded.Delta})
 		case "response.output_text.done":
 			finalText = decoded.Text
 		case "response.output_item.added", "response.output_item.done":

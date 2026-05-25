@@ -407,7 +407,9 @@ business logic, data access, side effects, and result content.
 Models that support text deltas implement `StreamModel` in addition to `Model`.
 The built-in OpenAI-compatible, OpenAI Responses, and Anthropic Messages
 adapters implement `StreamModel`, so they can be passed directly to
-`RunStream`. `RunStream` returns a channel of `StreamEvent` values.
+`RunStream`. `RunStream` returns a channel of `StreamEvent` values. Anthropic
+thinking and OpenAI Responses reasoning deltas are emitted as
+`StreamEventThinkingDelta` when providers stream them.
 
 ```go
 events, err := bot.RunStream(ctx, "Write a short summary.")
@@ -422,6 +424,8 @@ for event := range events {
 	switch event.Type {
 	case agent.StreamEventDelta:
 		fmt.Print(event.Delta)
+	case agent.StreamEventThinkingDelta:
+		fmt.Printf("thinking: %s", event.Delta)
 	case agent.StreamEventDone:
 		fmt.Println(event.Message.Content)
 	case agent.StreamEventError:
@@ -431,9 +435,10 @@ for event := range events {
 ```
 
 The SDK commits the final assistant message only after a done event. Interrupted
-delta streams do not persist partial assistant text. Final done events carry
-provider token usage when the stream format reports it, and streaming
-observability copies that usage into `EventAfterModel`/`Observation.TokenUsage`.
+delta streams do not persist partial assistant text, and thinking deltas are not
+appended to final assistant content. Final done events carry provider token usage
+when the stream format reports it, and streaming observability copies that usage
+into `EventAfterModel`/`Observation.TokenUsage`.
 Built-in providers normalize supported streamed tool-call shapes into final done
 messages so `RunStream` can execute them and continue the tool loop.
 

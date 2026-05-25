@@ -28,6 +28,7 @@ type StreamEventType = core.StreamEventType
 
 const (
 	StreamEventDelta         = core.StreamEventDelta
+	StreamEventThinkingDelta = core.StreamEventThinkingDelta
 	StreamEventDone          = core.StreamEventDone
 	StreamEventError         = core.StreamEventError
 	StreamEventToolCallStart = core.StreamEventToolCallStart

@@ -63,6 +63,7 @@ type StreamEventType string
 
 const (
 	StreamEventDelta         StreamEventType = "delta"
+	StreamEventThinkingDelta StreamEventType = "thinking_delta"
 	StreamEventDone          StreamEventType = "done"
 	StreamEventError         StreamEventType = "error"
 	StreamEventToolCallStart StreamEventType = "tool_call_start"
@@ -87,9 +88,9 @@ type StreamFinishMetadata struct {
 }
 
 // StreamEvent carries one item from a streaming run. Delta contains incremental
-// assistant text. ToolCall contains safe metadata on tool-call boundary events.
-// Message, Usage, and Finish are populated on done when available; Error is
-// populated on error.
+// assistant text or provider thinking text, depending on Type. ToolCall contains
+// safe metadata on tool-call boundary events. Message, Usage, and Finish are
+// populated on done when available; Error is populated on error.
 type StreamEvent struct {
 	Type     StreamEventType
 	AgentID  string

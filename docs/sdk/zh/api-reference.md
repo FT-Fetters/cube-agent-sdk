@@ -29,7 +29,7 @@
 - `TokenUsage`
 - `StreamEvent`
 - `StreamEventType`
-- `StreamEventDelta`、`StreamEventDone`、`StreamEventError`
+- `StreamEventDelta`、`StreamEventThinkingDelta`、`StreamEventDone`、`StreamEventError`
 - `ModelCapability`
 - `ModelCapabilityTools`、`ModelCapabilityStreaming`、`ModelCapabilityJSONMode`、
   `ModelCapabilityStructuredOutput`、`ModelCapabilityReasoningMetadata`、

@@ -111,10 +111,11 @@ model, err := agent.NewOpenAIResponsesModel(agent.OpenAIResponsesConfig{
 把 SDK system prompt 映射到 `instructions`，把 tools 映射为 Responses
 function tools，把 tool results 映射为 `function_call_output`，并在 assistant
 消息上保留原始 Responses output 元数据，支持多轮工具循环。它也通过
-`response.output_text.delta`、`response.completed` 等 Responses semantic streaming
-events 实现了 `StreamModel`。当响应包含 token usage 时，适配器会把常见的
-input、output 和 total token 字段映射到 `ModelResponse.Usage` 或最终
-`StreamEvent.Usage`。
+`response.output_text.delta`、`response.reasoning_summary_text.delta`、
+`response.reasoning_text.delta`、`response.completed` 等 Responses semantic streaming
+events 实现了 `StreamModel`。Reasoning delta 会作为 `StreamEventThinkingDelta`
+发出。当响应包含 token usage 时，适配器会把常见的 input、output 和 total token
+字段映射到 `ModelResponse.Usage` 或最终 `StreamEvent.Usage`。
 
 ## Anthropic Messages
 
@@ -142,9 +143,11 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 `thinking` 和 `redacted_thinking`，以便 tool-use continuation
 能把带签名的 thinking context 回放给 provider。它也通过 Anthropic
 `content_block_delta`、`message_delta` 和 `message_stop` SSE events 实现了
-`StreamModel`。当 Anthropic 返回 `usage.input_tokens` 和 `usage.output_tokens` 时，
-适配器会映射到 `ModelResponse.Usage` 或最终 `StreamEvent.Usage`；如果 provider
-没有报告 total，则由 input 和 output 相加得到。
+`StreamModel`。Anthropic `thinking_delta` 会作为 `StreamEventThinkingDelta` 发出；
+signature delta 仍只作为 metadata 保留，用于 provider 回放。当 Anthropic 返回
+`usage.input_tokens` 和 `usage.output_tokens` 时，适配器会映射到
+`ModelResponse.Usage` 或最终 `StreamEvent.Usage`；如果 provider 没有报告 total，则由
+input 和 output 相加得到。
 
 ## 可靠性模型 Wrapper
 

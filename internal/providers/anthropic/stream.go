@@ -134,12 +134,15 @@ func streamAnthropicMessagesEvents(ctx context.Context, body io.Reader, events c
 				content.WriteString(block.Text)
 				return sendAnthropicStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDelta, Delta: block.Text})
 			}
+			if block.Type == "thinking" && block.Thinking != "" {
+				return sendAnthropicStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventThinkingDelta, Delta: block.Thinking})
+			}
 		case "content_block_delta":
 			switch decoded.Delta.Type {
 			case "text_delta":
 				return sendAnthropicTextDelta(ctx, events, &content, &blocks, decoded.Index, decoded.Delta.Text)
 			case "thinking_delta":
-				blocks.appendString(decoded.Index, "thinking", "thinking", decoded.Delta.Thinking)
+				return sendAnthropicThinkingDelta(ctx, events, &blocks, decoded.Index, decoded.Delta.Thinking)
 			case "signature_delta":
 				blocks.appendString(decoded.Index, "thinking", "signature", decoded.Delta.Signature)
 			case "input_json_delta":
@@ -408,6 +411,16 @@ func sendAnthropicTextDelta(ctx context.Context, events chan<- core.StreamEvent,
 		blocks.appendString(index, "text", "text", delta)
 	}
 	return sendAnthropicStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDelta, Delta: delta})
+}
+
+func sendAnthropicThinkingDelta(ctx context.Context, events chan<- core.StreamEvent, blocks *anthropicStreamContentBlocks, index int, delta string) error {
+	if delta == "" {
+		return nil
+	}
+	if blocks != nil {
+		blocks.appendString(index, "thinking", "thinking", delta)
+	}
+	return sendAnthropicStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventThinkingDelta, Delta: delta})
 }
 
 func sendAnthropicStreamEvents(ctx context.Context, events chan<- core.StreamEvent, streamEvents []core.StreamEvent) error {

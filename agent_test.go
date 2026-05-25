@@ -1856,6 +1856,47 @@ func TestAgentRunStreamEmitsDeltasDoneAndWritesFinalMessage(t *testing.T) {
 	}
 }
 
+func TestAgentRunStreamForwardsThinkingDeltasWithoutCommittingThemAsContent(t *testing.T) {
+	ctx := context.Background()
+	metadata := map[string]any{"provider_reasoning": []any{map[string]any{"type": "thinking"}}}
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventThinkingDelta, Delta: "Need to answer carefully."},
+		{Type: StreamEventDelta, Delta: "final answer"},
+		{Type: StreamEventDone, Message: Message{Role: RoleAssistant, Metadata: metadata}},
+	}}
+	agent, err := New(Config{ID: "stream-agent"}, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := agent.RunStream(ctx, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+
+	if len(got) != 3 {
+		t.Fatalf("stream events = %#v, want thinking, delta, done", got)
+	}
+	if got[0].Type != StreamEventThinkingDelta || got[0].AgentID != "stream-agent" || got[0].Delta != "Need to answer carefully." {
+		t.Fatalf("first event = %#v, want thinking delta for stream-agent", got[0])
+	}
+	if got[1].Type != StreamEventDelta || got[1].Delta != "final answer" {
+		t.Fatalf("second event = %#v, want final answer delta", got[1])
+	}
+	if got[2].Type != StreamEventDone || got[2].Message.Content != "final answer" {
+		t.Fatalf("done event = %#v, want final answer only", got[2])
+	}
+	if _, ok := got[2].Message.Metadata["provider_reasoning"]; !ok {
+		t.Fatalf("done metadata = %#v, want preserved reasoning metadata", got[2].Message.Metadata)
+	}
+
+	messages := agent.Messages()
+	if len(messages) != 2 || messages[1].Role != RoleAssistant || messages[1].Content != "final answer" {
+		t.Fatalf("agent messages = %#v, want final assistant content without thinking", messages)
+	}
+}
+
 func TestAgentRunStreamExecutesToolCallsAndContinuesStreaming(t *testing.T) {
 	ctx := context.Background()
 	model := &streamingRecordingModel{streamEventBatches: [][]StreamEvent{

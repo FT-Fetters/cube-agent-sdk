@@ -116,9 +116,11 @@ adapter maps the SDK system prompt to `instructions`, tools to Responses
 function tools, tool results to `function_call_output`, and preserves raw
 Responses output metadata on assistant messages for multi-round tool loops. It
 also implements `StreamModel` using Responses semantic streaming events such as
-`response.output_text.delta` and `response.completed`. When the response
-includes token usage, the adapter maps common input, output, and total token
-fields to `ModelResponse.Usage` or final `StreamEvent.Usage`.
+`response.output_text.delta`, `response.reasoning_summary_text.delta`,
+`response.reasoning_text.delta`, and `response.completed`. Reasoning deltas are
+emitted as `StreamEventThinkingDelta`. When the response includes token usage,
+the adapter maps common input, output, and total token fields to
+`ModelResponse.Usage` or final `StreamEvent.Usage`.
 
 ## Anthropic Messages
 
@@ -146,10 +148,12 @@ as Anthropic's top-level `thinking` object. The adapter preserves raw Anthropic
 content blocks on assistant message metadata, including `thinking`
 and `redacted_thinking`, so signed thinking context can be replayed during
 tool-use continuations. It also implements `StreamModel` using Anthropic
-`content_block_delta`, `message_delta`, and `message_stop` SSE events. When
-Anthropic returns `usage.input_tokens` and `usage.output_tokens`, the adapter
-maps them to `ModelResponse.Usage` or final `StreamEvent.Usage` and derives the
-total when the provider does not report one.
+`content_block_delta`, `message_delta`, and `message_stop` SSE events. Anthropic
+`thinking_delta` events are emitted as `StreamEventThinkingDelta`; signature
+deltas remain metadata for provider replay. When Anthropic returns
+`usage.input_tokens` and `usage.output_tokens`, the adapter maps them to
+`ModelResponse.Usage` or final `StreamEvent.Usage` and derives the total when the
+provider does not report one.
 
 ## Reliable Model Wrappers
 

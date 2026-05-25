@@ -3,7 +3,7 @@
 流式模型除了实现 `Model`，还需要实现 `StreamModel`。内置的
 OpenAI-compatible chat completions、OpenAI Responses 和 Anthropic Messages
 适配器都支持基于 provider 原生流式响应的 `RunStream`。当调用方需要增量
-assistant 文本时，使用 `RunStream`。
+assistant 文本，或 provider 的 thinking/reasoning 文本时，使用 `RunStream`。
 
 ```go
 events, err := bot.RunStream(ctx, "Write a short summary.")
@@ -18,6 +18,8 @@ for event := range events {
 	switch event.Type {
 	case agent.StreamEventDelta:
 		fmt.Print(event.Delta)
+	case agent.StreamEventThinkingDelta:
+		fmt.Printf("thinking: %s", event.Delta)
 	case agent.StreamEventToolCallStart:
 		fmt.Printf("tool starting: %s\n", event.ToolCall.Name)
 	case agent.StreamEventToolCallDone:
@@ -39,6 +41,7 @@ for event := range events {
 ## 事件类型
 
 - `StreamEventDelta`：增量 assistant 文本。
+- `StreamEventThinkingDelta`：增量 provider thinking 或 reasoning 文本，会实时交给调用方，但不会拼入最终 assistant message content。
 - `StreamEventToolCallStart`：安全的 tool-call 边界 metadata，例如 tool call ID、名称和 provider stream index；不包含 tool arguments。
 - `StreamEventToolCallDone`：当 provider adapter 已经能重建 streamed tool call 时发出的安全边界 metadata；不包含 tool arguments。
 - `StreamEventDone`：最终 assistant 消息；如果 provider 报告 usage 和安全 finish metadata，也会一起携带。
@@ -46,13 +49,16 @@ for event := range events {
 
 SDK 只会在 done event 转发给调用方后提交最终 assistant 消息。中断的 delta
 stream 以及已取消、被丢弃的 stream 不会持久化部分或未送达的 assistant 文本。
+Thinking delta 只对调用方实时可见；如果适配器支持，provider-specific reasoning
+metadata 仍会保留在最终 done message 上，用于后续 continuation。
 
 最终的 streaming `EventAfterModel` event 和 observation 会通过 `Duration` 携带整个
 stream 的持续时间。如果模型在 done event 上报告 usage，同一组 token counts 也会写入
 `TokenUsage`。最终 done event 还可能携带 `Finish.Reason`，例如 provider 的 stop
 reason 或 tool-call finish reason。只要至少收到一个 delta，lifecycle telemetry 还会包含脱敏的
-`StreamTelemetry`：time to first token、delta 数量、streamed delta 字节数和吞吐量。
-Stream telemetry 不会包含 streamed text 或 tool arguments。
+`StreamTelemetry`：assistant 正文的 time to first token、delta 数量、streamed delta
+字节数和吞吐量。Stream telemetry 不会包含 streamed text、thinking text 或 tool
+arguments。
 
 如果需要 start、first delta、done 和 error 的 observer-only stream lifecycle
 telemetry，可以在 `RunStream` 调用上使用 `WithStreamObservations()`。该选项不会为
