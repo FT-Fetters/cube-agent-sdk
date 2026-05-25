@@ -27,14 +27,18 @@ for event := range events {
 }
 ```
 
+调用方必须一直读取返回的 channel，直到它关闭；如果需要提前停止读取，必须取消传给
+`RunStream` 的 context。取消 context 会释放 provider stream 并关闭返回的 channel；
+在不取消 context 的情况下丢弃 channel，可能会让转发 goroutine 阻塞。
+
 ## 事件类型
 
 - `StreamEventDelta`：增量 assistant 文本。
 - `StreamEventDone`：最终 assistant 消息；如果 provider 报告 usage，也会携带 token usage。
 - `StreamEventError`：流式失败。
 
-SDK 只会在 done event 到达后提交最终 assistant 消息。中断的 delta stream 不会
-持久化部分 assistant 文本。
+SDK 只会在 done event 转发给调用方后提交最终 assistant 消息。中断的 delta
+stream 以及已取消、被丢弃的 stream 不会持久化部分或未送达的 assistant 文本。
 
 最终的 streaming `EventAfterModel` event 和 observation 会通过 `Duration` 携带整个
 stream 的持续时间。如果模型在 done event 上报告 usage，同一组 token counts 也会写入

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAgentWrapsApprovalDeniedWithStructuredError(t *testing.T) {
@@ -1929,6 +1930,68 @@ func TestAgentRunStreamEmitsErrorEventAndSkipsIncompleteAssistantMessage(t *test
 	}
 }
 
+func TestAgentRunStreamCancellationWhileForwardingSkipsFinalMessageAndCancelsProvider(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	model := &controlledStreamModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "partial"},
+		{Type: StreamEventDone, Message: Message{Role: RoleAssistant, Content: "final"}},
+	}}
+	afterModelStarted := make(chan struct{})
+	releaseAfterModel := make(chan struct{})
+	agent, err := New(Config{ID: "stream-agent"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			if event.Type == EventAfterModel && event.Error == nil && event.Message.Role == RoleAssistant {
+				select {
+				case <-afterModelStarted:
+				default:
+					close(afterModelStarted)
+				}
+				<-releaseAfterModel
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := <-stream
+	if first.Type != StreamEventDelta || first.Delta != "partial" {
+		t.Fatalf("first stream event = %#v, want partial delta", first)
+	}
+	select {
+	case <-afterModelStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for done event to reach after-model hook")
+	}
+
+	cancel()
+	close(releaseAfterModel)
+	select {
+	case <-model.streamContexts[0].Done():
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for provider stream context cancellation")
+	}
+	select {
+	case event, ok := <-stream:
+		if ok {
+			t.Fatalf("stream event after cancellation = %#v, want closed stream", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream to close after cancellation")
+	}
+
+	wantMessages := []Message{{Role: RoleUser, Content: "start"}}
+	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
+		t.Fatalf("agent messages = %#v, want no final assistant message after cancellation", got)
+	}
+}
+
 func TestAgentRunStreamObservabilityCarriesStreamTelemetryOnSuccess(t *testing.T) {
 	ctx := context.Background()
 	model := &streamingRecordingModel{streamEvents: []StreamEvent{
@@ -3042,6 +3105,33 @@ type failingModel struct {
 
 func (m failingModel) Generate(ctx context.Context, request ModelRequest) (ModelResponse, error) {
 	return ModelResponse{}, m.err
+}
+
+type controlledStreamModel struct {
+	requests       []ModelRequest
+	streamContexts []context.Context
+	streamEvents   []StreamEvent
+}
+
+func (m *controlledStreamModel) Generate(ctx context.Context, request ModelRequest) (ModelResponse, error) {
+	return ModelResponse{Message: Message{Role: RoleAssistant, Content: ""}}, nil
+}
+
+func (m *controlledStreamModel) Stream(ctx context.Context, request ModelRequest) (<-chan StreamEvent, error) {
+	m.requests = append(m.requests, request)
+	m.streamContexts = append(m.streamContexts, ctx)
+	events := make(chan StreamEvent)
+	go func() {
+		defer close(events)
+		for _, event := range m.streamEvents {
+			select {
+			case <-ctx.Done():
+				return
+			case events <- event:
+			}
+		}
+	}()
+	return events, nil
 }
 
 type streamingRecordingModel struct {

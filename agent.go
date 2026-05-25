@@ -499,7 +499,8 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 }
 
 // RunStream starts a streaming model call and returns events as the model emits
-// them. The final assistant message is written only after a done event arrives.
+// them. Callers must either drain the returned channel or cancel the context.
+// The final assistant message is written only after a done event is forwarded.
 func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOption) (<-chan StreamEvent, error) {
 	var config runConfig
 	for _, option := range options {
@@ -566,13 +567,17 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		return nil, err
 	}
 
-	firstRound, _, err := a.startStreamRound(ctx, streamModel, activeSkills, 1, "", config.observeStreamLifecycle)
+	// A child context lets the forwarding goroutine release provider streams when
+	// the caller cancels or when the agent stops consuming a provider stream early.
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	firstRound, _, err := a.startStreamRound(streamCtx, streamModel, activeSkills, 1, "", config.observeStreamLifecycle)
 	if err != nil {
+		cancelStream()
 		return nil, err
 	}
 
 	out := make(chan StreamEvent)
-	go a.forwardStreamEvents(ctx, streamModel, activeSkills, firstRound, out, config.observeStreamLifecycle)
+	go a.forwardStreamEvents(streamCtx, cancelStream, streamModel, activeSkills, firstRound, out, config.observeStreamLifecycle)
 	return out, nil
 }
 
@@ -676,8 +681,11 @@ func (a *Agent) handleStreamStartError(ctx context.Context, state activeStreamRo
 	return wrapped
 }
 
-func (a *Agent) forwardStreamEvents(ctx context.Context, streamModel StreamModel, activeSkills []Skill, firstRound activeStreamRound, out chan<- StreamEvent, observeStreamLifecycle bool) {
-	defer close(out)
+func (a *Agent) forwardStreamEvents(ctx context.Context, cancelStream context.CancelFunc, streamModel StreamModel, activeSkills []Skill, firstRound activeStreamRound, out chan<- StreamEvent, observeStreamLifecycle bool) {
+	defer func() {
+		cancelStream()
+		close(out)
+	}()
 
 	agentID := a.agentID()
 	maxRounds := a.maxToolRounds()
@@ -694,11 +702,17 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, streamModel StreamModel
 		}
 
 		// A tool-call done event is a control point, not the user's final streamed answer.
+		if ctx.Err() != nil {
+			return
+		}
 		a.appendMessage(outcome.message)
 		for _, call := range outcome.toolCalls {
 			result, err := a.executeTool(ctx, call, round.round, round.requestID)
 			if err != nil {
 				a.sendStreamRuntimeError(ctx, out, agentID, err, round, outcome.telemetry, observeStreamLifecycle)
+				return
+			}
+			if ctx.Err() != nil {
 				return
 			}
 			a.appendMessage(Message{
@@ -792,14 +806,17 @@ func (a *Agent) forwardStreamRound(ctx context.Context, state activeStreamRound,
 				TokenUsage:      event.Usage,
 				StreamTelemetry: telemetry.telemetry(duration),
 			})
+			if ctx.Err() != nil {
+				return streamRoundOutcome{}, false
+			}
 			if len(message.ToolCalls) > 0 {
 				return streamRoundOutcome{message: message, toolCalls: cloneToolCalls(message.ToolCalls), telemetry: telemetry}, true
 			}
-			// Commit only after final done so interrupted delta streams do not persist partial assistant text.
-			a.appendMessage(message)
 			if !sendStreamEvent(ctx, out, event) {
 				return streamRoundOutcome{}, false
 			}
+			// Commit only after the caller receives final done so cancellation cannot persist an abandoned answer.
+			a.appendMessage(message)
 			return streamRoundOutcome{message: message, telemetry: telemetry}, true
 		case StreamEventError:
 			if event.Error == nil {

@@ -27,14 +27,20 @@ for event := range events {
 }
 ```
 
+Callers must either drain the returned channel until it closes or cancel the
+context passed to `RunStream` when they stop reading early. Canceling the
+context releases the provider stream and closes the returned channel; abandoning
+the channel without cancellation can leave forwarding blocked.
+
 ## Event Types
 
 - `StreamEventDelta`: incremental assistant text.
 - `StreamEventDone`: final assistant message and provider token usage when available.
 - `StreamEventError`: stream failure.
 
-The SDK commits the final assistant message only after a done event. Interrupted
-delta streams do not persist partial assistant text.
+The SDK commits the final assistant message only after a done event is
+forwarded to the caller. Interrupted delta streams and canceled abandoned streams
+do not persist partial or undelivered assistant text.
 
 Final streaming `EventAfterModel` events and observations include total stream
 duration through `Duration`. When a model reports usage on the done event, the

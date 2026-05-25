@@ -14,7 +14,7 @@
     - Existing text-only stream behavior, interrupted-stream behavior, unsupported-stream errors, and provider diagnostics remain compatible.
     - Tests cover successful streamed tool call continuation, tool errors or approval denial, and max tool round exhaustion.
 
-- [ ] **2. Stream cancellation and drain semantics**
+- [x] **2. Stream cancellation and drain semantics**
   - Clarify and harden caller cancellation behavior for returned stream channels.
   - Acceptance criteria:
     - Documentation states callers must drain the stream or cancel the context.
