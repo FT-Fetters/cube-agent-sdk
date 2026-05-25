@@ -1,0 +1,56 @@
+agent_test.go
+  ed93a8f2cdc41fdd 1508-1802,2302,2305,2322,2326,2328-2329,2336,3048-3051,3063-3067,3071
+agent.go
+  ed93a8f2cdc41fdd 569-595,598-601,604-611,615-616,619,621,624-625,630,634-656,658-660,662-663,665,667-676,679,682-715,717-728,730,732-734,739-740,744,747-749,751,757,767,770,773-775,777,782-783,787-789,791,795-798,801,803,809-812,814,817-819,821,829-831,833,838,841-842,846-848,850-887,889-900,903,918-920,930,937,944,957,964-968
+RUNSTREAM_COMPLETENESS_CHECKLIST.md
+  ed93a8f2cdc41fdd 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "64407391ea89096e3404f1b47f7e8e8106b7f4cd",
+  "prompts": {
+    "7356d394ecf58fc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4e91-2667-7072-a01d-9004a91b2c6e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1190,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/19118d5b7f8832ef933d85d155e51daae432316103a39bf2da1aeb250a5e3244"
+    },
+    "8b1bd6b083081424": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d09-abc1-7670-a40e-ef5312d1b822",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 451,
+      "total_deletions": 60,
+      "accepted_lines": 440,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/8476c94c96604aeee5baed48553f2d8b63059da66cd1367952b02dfc0adc84a5"
+    },
+    "ed93a8f2cdc41fdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e2c-f5a1-7913-afb5-c48d636a8808",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 663,
+      "total_deletions": 143,
+      "accepted_lines": 662,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/fa68a6569325988736841e747b3b037348686b4f02db486cc07179bf070c5c7d"
+    }
+  }
+}
