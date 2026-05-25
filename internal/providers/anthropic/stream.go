@@ -90,6 +90,7 @@ type anthropicMessagesStreamDelta struct {
 	Thinking    string `json:"thinking"`
 	Signature   string `json:"signature"`
 	PartialJSON string `json:"partial_json"`
+	StopReason  string `json:"stop_reason"`
 }
 
 type anthropicMessagesStreamError struct {
@@ -101,6 +102,8 @@ func streamAnthropicMessagesEvents(ctx context.Context, body io.Reader, events c
 	var content strings.Builder
 	var usage anthropicMessagesUsage
 	var blocks anthropicStreamContentBlocks
+	var finish core.StreamFinishMetadata
+	var boundaryEvents []core.StreamEvent
 	var done bool
 
 	err := providersse.Read(ctx, body, func(event providersse.Event) error {
@@ -124,6 +127,9 @@ func streamAnthropicMessagesEvents(ctx context.Context, body io.Reader, events c
 			if err != nil {
 				return sendAnthropicStreamError(ctx, events, core.NewProviderDecodeError("decode anthropic messages stream content block", diagnostics, err))
 			}
+			if block.Type == "tool_use" {
+				boundaryEvents = append(boundaryEvents, anthropicStreamToolCallBoundary(core.StreamEventToolCallStart, decoded.Index, block.ID, block.Name))
+			}
 			if block.Type == "text" && block.Text != "" {
 				content.WriteString(block.Text)
 				return sendAnthropicStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDelta, Delta: block.Text})
@@ -139,12 +145,22 @@ func streamAnthropicMessagesEvents(ctx context.Context, body io.Reader, events c
 			case "input_json_delta":
 				blocks.appendPartialJSON(decoded.Index, decoded.Delta.PartialJSON)
 			}
+		case "content_block_stop":
+			if toolCall, ok := blocks.toolCallMetadata(decoded.Index); ok {
+				boundaryEvents = append(boundaryEvents, core.StreamEvent{Type: core.StreamEventToolCallDone, ToolCall: toolCall})
+			}
 		case "message_delta":
 			mergeAnthropicStreamUsage(&usage, decoded.Usage)
+			if decoded.Delta.StopReason != "" {
+				finish.Reason = decoded.Delta.StopReason
+			}
 		case "message_stop":
 			toolCalls, err := blocks.toolCalls()
 			if err != nil {
 				return sendAnthropicStreamError(ctx, events, core.NewProviderDecodeError("decode anthropic messages streamed tool_use input", diagnostics, err))
+			}
+			if err := sendAnthropicStreamEvents(ctx, events, boundaryEvents); err != nil {
+				return err
 			}
 			done = true
 			return sendAnthropicStreamEvent(ctx, events, core.StreamEvent{
@@ -155,7 +171,8 @@ func streamAnthropicMessagesEvents(ctx context.Context, body io.Reader, events c
 					ToolCalls: core.CloneToolCalls(toolCalls),
 					Metadata:  blocks.metadata(),
 				},
-				Usage: usage.tokenUsage(),
+				Usage:  usage.tokenUsage(),
+				Finish: finish,
 			})
 		case "error":
 			return sendAnthropicStreamError(ctx, events, core.NewProviderError("anthropic messages stream returned provider error", diagnostics, nil))
@@ -290,6 +307,19 @@ func (b *anthropicStreamContentBlocks) toolCalls() ([]core.ToolCall, error) {
 	return calls, nil
 }
 
+func (b *anthropicStreamContentBlocks) toolCallMetadata(index int) (core.StreamToolCall, bool) {
+	if b.blocks == nil {
+		return core.StreamToolCall{}, false
+	}
+	block := b.blocks[index]
+	if block == nil || block["type"] != "tool_use" {
+		return core.StreamToolCall{}, false
+	}
+	id, _ := block["id"].(string)
+	name, _ := block["name"].(string)
+	return core.StreamToolCall{ID: id, Name: name, Index: index}, true
+}
+
 func (b *anthropicStreamContentBlocks) toolInput(index int, block map[string]any, id string, name string) (map[string]any, error) {
 	if partial := b.toolInputs[index]; partial != nil && partial.Len() > 0 {
 		return parseAnthropicStreamToolInput(partial.String(), id, name)
@@ -358,6 +388,17 @@ func (b *anthropicStreamContentBlocks) content() []map[string]any {
 	return content
 }
 
+func anthropicStreamToolCallBoundary(eventType core.StreamEventType, index int, id string, name string) core.StreamEvent {
+	return core.StreamEvent{
+		Type: eventType,
+		ToolCall: core.StreamToolCall{
+			ID:    id,
+			Name:  name,
+			Index: index,
+		},
+	}
+}
+
 func sendAnthropicTextDelta(ctx context.Context, events chan<- core.StreamEvent, content *strings.Builder, blocks *anthropicStreamContentBlocks, index int, delta string) error {
 	if delta == "" {
 		return nil
@@ -367,6 +408,15 @@ func sendAnthropicTextDelta(ctx context.Context, events chan<- core.StreamEvent,
 		blocks.appendString(index, "text", "text", delta)
 	}
 	return sendAnthropicStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDelta, Delta: delta})
+}
+
+func sendAnthropicStreamEvents(ctx context.Context, events chan<- core.StreamEvent, streamEvents []core.StreamEvent) error {
+	for _, event := range streamEvents {
+		if err := sendAnthropicStreamEvent(ctx, events, event); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func sendAnthropicStreamEvent(ctx context.Context, events chan<- core.StreamEvent, event core.StreamEvent) error {

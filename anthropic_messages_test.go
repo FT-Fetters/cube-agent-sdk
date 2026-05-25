@@ -382,7 +382,7 @@ func TestAnthropicMessagesModelStreamsDeltasDoneAndUsage(t *testing.T) {
 		writeSSEEvent(t, w, "message_start", `{"type":"message_start","message":{"usage":{"input_tokens":17}}}`)
 		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}`)
 		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"lo"}}`)
-		writeSSEEvent(t, w, "message_delta", `{"type":"message_delta","usage":{"output_tokens":9}}`)
+		writeSSEEvent(t, w, "message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}`)
 		writeSSEEvent(t, w, "message_stop", `{"type":"message_stop"}`)
 	}))
 	defer server.Close()
@@ -458,7 +458,7 @@ func TestAnthropicMessagesModelStreamMapsToolUseBlocks(t *testing.T) {
 		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":`+strconvQuote(`{"query"`)+`}}`)
 		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":`+strconvQuote(`:"docs","limit":3}`)+`}}`)
 		writeSSEEvent(t, w, "content_block_stop", `{"type":"content_block_stop","index":0}`)
-		writeSSEEvent(t, w, "message_delta", `{"type":"message_delta","usage":{"output_tokens":9}}`)
+		writeSSEEvent(t, w, "message_delta", `{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}`)
 		writeSSEEvent(t, w, "message_stop", `{"type":"message_stop"}`)
 	}))
 	defer server.Close()
@@ -477,13 +477,18 @@ func TestAnthropicMessagesModelStreamMapsToolUseBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := collectStreamEvents(t, events)
-	if len(got) != 1 {
-		t.Fatalf("stream events = %#v, want done", got)
+	if len(got) != 3 {
+		t.Fatalf("stream events = %#v, want tool start, tool done, done", got)
 	}
-	assertStreamDoneToolCall(t, got[0], "", "toolu-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26})
-	rawContent, ok := got[0].Message.Metadata["anthropic_messages_content"].([]map[string]any)
+	assertStreamToolCallBoundary(t, got[0], StreamEventToolCallStart, 0, "toolu-1", "search")
+	assertStreamToolCallBoundary(t, got[1], StreamEventToolCallDone, 0, "toolu-1", "search")
+	assertStreamDoneToolCall(t, got[2], "", "toolu-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26})
+	if got[2].Finish.Reason != "tool_use" {
+		t.Fatalf("done finish metadata = %#v, want tool_use", got[2].Finish)
+	}
+	rawContent, ok := got[2].Message.Metadata["anthropic_messages_content"].([]map[string]any)
 	if !ok || len(rawContent) != 1 {
-		t.Fatalf("metadata raw content = %#v, want tool_use block", got[0].Message.Metadata["anthropic_messages_content"])
+		t.Fatalf("metadata raw content = %#v, want tool_use block", got[2].Message.Metadata["anthropic_messages_content"])
 	}
 	input, ok := rawContent[0]["input"].(map[string]any)
 	if rawContent[0]["type"] != "tool_use" || rawContent[0]["id"] != "toolu-1" || !ok || input["query"] != "docs" || input["limit"] != float64(3) {

@@ -18,9 +18,14 @@ for event := range events {
 	switch event.Type {
 	case agent.StreamEventDelta:
 		fmt.Print(event.Delta)
+	case agent.StreamEventToolCallStart:
+		fmt.Printf("tool starting: %s\n", event.ToolCall.Name)
+	case agent.StreamEventToolCallDone:
+		fmt.Printf("tool ready: %s\n", event.ToolCall.Name)
 	case agent.StreamEventDone:
 		fmt.Println(event.Message.Content)
-		_ = event.Usage // Final provider token usage when the stream reports it.
+		_ = event.Usage  // Final provider token usage when the stream reports it.
+		_ = event.Finish // Final safe finish metadata when the stream reports it.
 	case agent.StreamEventError:
 		return event.Error
 	}
@@ -35,7 +40,9 @@ the channel without cancellation can leave forwarding blocked.
 ## Event Types
 
 - `StreamEventDelta`: incremental assistant text.
-- `StreamEventDone`: final assistant message and provider token usage when available.
+- `StreamEventToolCallStart`: safe tool-call boundary metadata such as tool call ID, name, and provider stream index. It does not include tool arguments.
+- `StreamEventToolCallDone`: safe tool-call boundary metadata emitted when the streamed tool call is complete enough for the provider adapter to reconstruct it. It does not include tool arguments.
+- `StreamEventDone`: final assistant message, provider token usage, and safe finish metadata when available.
 - `StreamEventError`: stream failure.
 
 The SDK commits the final assistant message only after a done event is
@@ -44,21 +51,30 @@ do not persist partial or undelivered assistant text.
 
 Final streaming `EventAfterModel` events and observations include total stream
 duration through `Duration`. When a model reports usage on the done event, the
-same token counts are copied to `TokenUsage`. When at least one delta is
-received, they also include sanitized `StreamTelemetry` with time to first token,
-delta count, streamed delta byte count, and throughput. Stream telemetry never
-contains the streamed text.
+same token counts are copied to `TokenUsage`. Final done events may also carry
+`Finish.Reason`, such as a provider stop or tool-call finish reason. When at
+least one delta is received, lifecycle telemetry includes sanitized
+`StreamTelemetry` with time to first token, delta count, streamed delta byte
+count, and throughput. Stream telemetry never contains the streamed text or tool
+arguments.
 
 Use `WithStreamObservations()` on a `RunStream` call when you need observer-only
 stream lifecycle telemetry for start, first delta, done, and error. The option
 does not emit per-delta observations beyond the first delta.
 
-## Current Limitations
+## Tool Calls
 
 `RunStream` executes tool calls that arrive on final done messages. Built-in
 OpenAI-compatible, OpenAI Responses, and Anthropic Messages adapters normalize
-supported streamed tool-call shapes into those done messages. The public stream
-event model does not expose separate tool-call start and done boundary events yet.
+supported streamed tool-call shapes into those done messages and may also emit
+safe `StreamEventToolCallStart` and `StreamEventToolCallDone` boundaries for UI
+state. Tool-call arguments remain on `event.Message.ToolCalls` in the final done
+event so the agent can execute tools; boundary events intentionally carry only
+safe metadata.
+
+Existing callers that switch only on delta, done, and error can keep doing so.
+They should ignore unknown stream event types to remain forward compatible with
+additional metadata events.
 
 If a provider rejects the initial streaming HTTP request, `RunStream` returns a
 structured provider error immediately. If the provider stream starts and then

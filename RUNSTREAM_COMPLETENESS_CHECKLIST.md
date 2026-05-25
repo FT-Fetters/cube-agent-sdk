@@ -37,7 +37,7 @@
     - Anthropic Messages streamed `tool_use` content blocks can be mapped to SDK tool calls, including partial JSON input.
     - Invalid streamed tool-call arguments produce safe decode errors without leaking raw provider payloads.
 
-- [ ] **5. Richer stream event model**
+- [x] **5. Richer stream event model**
   - Extend stream events for UI and observability without exposing unsafe payloads by default.
   - Acceptance criteria:
     - The public API can represent tool-call start/done boundaries or equivalent metadata.

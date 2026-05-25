@@ -522,11 +522,13 @@ type TranscriptStreamExchange struct {
 
 // TranscriptStreamEvent is a JSON-friendly stream event.
 type TranscriptStreamEvent struct {
-	Type    StreamEventType `json:"type,omitempty"`
-	Delta   string          `json:"delta,omitempty"`
-	Message Message         `json:"message,omitempty"`
-	Usage   TokenUsage      `json:"usage,omitempty"`
-	Error   string          `json:"error,omitempty"`
+	Type     StreamEventType       `json:"type,omitempty"`
+	Delta    string                `json:"delta,omitempty"`
+	ToolCall *StreamToolCall       `json:"tool_call,omitempty"`
+	Message  Message               `json:"message,omitempty"`
+	Usage    TokenUsage            `json:"usage,omitempty"`
+	Finish   *StreamFinishMetadata `json:"finish,omitempty"`
+	Error    string                `json:"error,omitempty"`
 }
 
 // TranscriptEvent is a stable lifecycle event view without timing fields.
@@ -987,14 +989,32 @@ func transcriptStreamEvents(events []StreamEvent) []TranscriptStreamEvent {
 	transcript := make([]TranscriptStreamEvent, len(events))
 	for i, event := range events {
 		transcript[i] = TranscriptStreamEvent{
-			Type:    event.Type,
-			Delta:   event.Delta,
-			Message: cloneMessage(event.Message),
-			Usage:   event.Usage,
-			Error:   errorStringForEval(event.Error),
+			Type:     event.Type,
+			Delta:    event.Delta,
+			ToolCall: streamToolCallPointerForEval(event.Type, event.ToolCall),
+			Message:  cloneMessage(event.Message),
+			Usage:    event.Usage,
+			Finish:   streamFinishPointerForEval(event.Finish),
+			Error:    errorStringForEval(event.Error),
 		}
 	}
 	return transcript
+}
+
+func streamToolCallPointerForEval(eventType StreamEventType, call StreamToolCall) *StreamToolCall {
+	if eventType != StreamEventToolCallStart && eventType != StreamEventToolCallDone && call.ID == "" && call.Name == "" && call.Index == 0 {
+		return nil
+	}
+	cloned := call
+	return &cloned
+}
+
+func streamFinishPointerForEval(finish StreamFinishMetadata) *StreamFinishMetadata {
+	if strings.TrimSpace(finish.Reason) == "" {
+		return nil
+	}
+	cloned := finish
+	return &cloned
 }
 
 func transcriptSessionEvent(event SessionEvent) TranscriptSessionEvent {

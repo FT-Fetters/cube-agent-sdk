@@ -159,6 +159,8 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 	var content strings.Builder
 	var toolCalls openAICompatibleStreamToolCalls
 	var usage core.TokenUsage
+	var finish core.StreamFinishMetadata
+	var boundaryEvents []core.StreamEvent
 	var done bool
 
 	err := providersse.Read(ctx, body, func(event providersse.Event) error {
@@ -167,9 +169,14 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 			return nil
 		}
 		if data == "[DONE]" {
+			boundaryEvents = append(boundaryEvents, toolCalls.doneEvents()...)
 			calls, err := toolCalls.toolCalls()
 			if err != nil {
 				return sendOpenAIStreamError(ctx, events, core.NewProviderDecodeError("decode openai-compatible streamed tool call arguments", diagnostics, err))
+			}
+			boundaryEvents = toolCalls.finalBoundaryEvents(boundaryEvents)
+			if err := sendOpenAIStreamEvents(ctx, events, boundaryEvents); err != nil {
+				return err
 			}
 			done = true
 			return sendOpenAIStreamEvent(ctx, events, core.StreamEvent{
@@ -179,7 +186,8 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 					Content:   content.String(),
 					ToolCalls: core.CloneToolCalls(calls),
 				},
-				Usage: usage,
+				Usage:  usage,
+				Finish: finish,
 			})
 		}
 
@@ -195,7 +203,11 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 		}
 		for _, choice := range chunk.Choices {
 			if len(choice.Delta.ToolCalls) > 0 {
-				toolCalls.add(choice.Delta.ToolCalls)
+				boundaryEvents = append(boundaryEvents, toolCalls.add(choice.Delta.ToolCalls)...)
+			}
+			if choice.FinishReason != "" {
+				finish.Reason = choice.FinishReason
+				boundaryEvents = append(boundaryEvents, toolCalls.doneEvents()...)
 			}
 			if choice.Delta.Content == nil || *choice.Delta.Content == "" {
 				continue
@@ -223,8 +235,10 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 // openAICompatibleStreamToolCalls reconstructs tool call deltas by index. Some
 // OpenAI-compatible providers stream IDs and names before argument fragments.
 type openAICompatibleStreamToolCalls struct {
-	calls map[int]*openAICompatibleStreamToolCall
-	order []int
+	calls   map[int]*openAICompatibleStreamToolCall
+	order   []int
+	started map[int]bool
+	done    map[int]bool
 }
 
 type openAICompatibleStreamToolCall struct {
@@ -233,18 +247,26 @@ type openAICompatibleStreamToolCall struct {
 	arguments strings.Builder
 }
 
-func (c *openAICompatibleStreamToolCalls) add(deltas []openAIChatToolCall) {
+func (c *openAICompatibleStreamToolCalls) add(deltas []openAIChatToolCall) []core.StreamEvent {
+	var events []core.StreamEvent
 	for _, delta := range deltas {
 		call := c.ensure(delta.Index)
 		call.id = appendOpenAIStreamValue(call.id, delta.ID)
 		call.name = appendOpenAIStreamValue(call.name, delta.Function.Name)
 		call.arguments.WriteString(delta.Function.Arguments)
+		if !c.started[delta.Index] {
+			c.started[delta.Index] = true
+			events = append(events, openAIStreamToolCallBoundary(core.StreamEventToolCallStart, delta.Index, call.id, call.name))
+		}
 	}
+	return events
 }
 
 func (c *openAICompatibleStreamToolCalls) ensure(index int) *openAICompatibleStreamToolCall {
 	if c.calls == nil {
 		c.calls = make(map[int]*openAICompatibleStreamToolCall)
+		c.started = make(map[int]bool)
+		c.done = make(map[int]bool)
 	}
 	call := c.calls[index]
 	if call == nil {
@@ -253,6 +275,38 @@ func (c *openAICompatibleStreamToolCalls) ensure(index int) *openAICompatibleStr
 		c.order = append(c.order, index)
 	}
 	return call
+}
+
+func (c *openAICompatibleStreamToolCalls) doneEvents() []core.StreamEvent {
+	if len(c.order) == 0 {
+		return nil
+	}
+	events := make([]core.StreamEvent, 0, len(c.order))
+	for _, index := range c.order {
+		if c.done[index] {
+			continue
+		}
+		c.done[index] = true
+		call := c.calls[index]
+		events = append(events, openAIStreamToolCallBoundary(core.StreamEventToolCallDone, index, call.id, call.name))
+	}
+	return events
+}
+
+func (c *openAICompatibleStreamToolCalls) finalBoundaryEvents(events []core.StreamEvent) []core.StreamEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	finalEvents := make([]core.StreamEvent, len(events))
+	for i, event := range events {
+		index := event.ToolCall.Index
+		if call := c.calls[index]; call != nil {
+			event.ToolCall.ID = call.id
+			event.ToolCall.Name = call.name
+		}
+		finalEvents[i] = event
+	}
+	return finalEvents
 }
 
 func (c *openAICompatibleStreamToolCalls) toolCalls() ([]core.ToolCall, error) {
@@ -275,6 +329,17 @@ func (c *openAICompatibleStreamToolCalls) toolCalls() ([]core.ToolCall, error) {
 	return calls, nil
 }
 
+func openAIStreamToolCallBoundary(eventType core.StreamEventType, index int, id string, name string) core.StreamEvent {
+	return core.StreamEvent{
+		Type: eventType,
+		ToolCall: core.StreamToolCall{
+			ID:    id,
+			Name:  name,
+			Index: index,
+		},
+	}
+}
+
 func appendOpenAIStreamValue(existing string, fragment string) string {
 	if fragment == "" {
 		return existing
@@ -295,6 +360,8 @@ func streamOpenAIResponseEvents(ctx context.Context, body io.Reader, events chan
 	var content strings.Builder
 	var finalText string
 	var toolCalls openAIResponsesStreamToolCalls
+	var finish core.StreamFinishMetadata
+	var boundaryEvents []core.StreamEvent
 	var done bool
 
 	err := providersse.Read(ctx, body, func(event providersse.Event) error {
@@ -320,12 +387,14 @@ func streamOpenAIResponseEvents(ctx context.Context, body io.Reader, events chan
 		case "response.output_text.done":
 			finalText = decoded.Text
 		case "response.output_item.added", "response.output_item.done":
-			toolCalls.addItem(decoded.OutputIndex, decoded.ItemID, decoded.Item)
+			boundaryEvents = append(boundaryEvents, toolCalls.addItem(decoded.OutputIndex, decoded.ItemID, decoded.Item)...)
 		case "response.function_call_arguments.delta":
 			toolCalls.appendArguments(decoded.OutputIndex, decoded.ItemID, decoded.Delta)
 		case "response.function_call_arguments.done":
-			toolCalls.setArguments(decoded.OutputIndex, decoded.ItemID, decoded.Arguments)
+			boundaryEvents = append(boundaryEvents, toolCalls.setArguments(decoded.OutputIndex, decoded.ItemID, decoded.Arguments)...)
 		case "response.completed":
+			finish.Reason = decoded.Response.finishReason("completed")
+			boundaryEvents = append(boundaryEvents, toolCalls.doneEvents()...)
 			response, err := decoded.Response.modelResponse()
 			streamCalls, streamCallErr := toolCalls.toolCalls()
 			if streamCallErr != nil && (err != nil || len(response.Message.ToolCalls) == 0) {
@@ -355,8 +424,11 @@ func streamOpenAIResponseEvents(ctx context.Context, body io.Reader, events chan
 			if response.Message.Content == "" {
 				response.Message.Content = content.String()
 			}
+			if err := sendOpenAIStreamEvents(ctx, events, boundaryEvents); err != nil {
+				return err
+			}
 			done = true
-			return sendOpenAIStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDone, Message: response.Message, Usage: response.Usage})
+			return sendOpenAIStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDone, Message: response.Message, Usage: response.Usage, Finish: finish})
 		case "error", "response.failed", "response.incomplete":
 			return sendOpenAIStreamError(ctx, events, core.NewProviderError("openai responses stream returned provider error", diagnostics, nil))
 		}
@@ -380,6 +452,8 @@ type openAIResponsesStreamToolCalls struct {
 	calls     map[string]*openAIResponsesStreamToolCall
 	order     []string
 	indexKeys map[int]string
+	started   map[string]bool
+	done      map[string]bool
 }
 
 type openAIResponsesStreamToolCall struct {
@@ -390,9 +464,9 @@ type openAIResponsesStreamToolCall struct {
 	arguments   strings.Builder
 }
 
-func (c *openAIResponsesStreamToolCalls) addItem(outputIndex int, itemID string, item openAIResponsesOutputItem) {
+func (c *openAIResponsesStreamToolCalls) addItem(outputIndex int, itemID string, item openAIResponsesOutputItem) []core.StreamEvent {
 	if item.Type != "function_call" {
-		return
+		return nil
 	}
 	if itemID == "" {
 		itemID = item.ID
@@ -405,6 +479,7 @@ func (c *openAIResponsesStreamToolCalls) addItem(outputIndex int, itemID string,
 		call.arguments.Reset()
 		call.arguments.WriteString(item.Arguments)
 	}
+	return c.startEvent(call)
 }
 
 func (c *openAIResponsesStreamToolCalls) appendArguments(outputIndex int, itemID string, delta string) {
@@ -415,16 +490,20 @@ func (c *openAIResponsesStreamToolCalls) appendArguments(outputIndex int, itemID
 	call.arguments.WriteString(delta)
 }
 
-func (c *openAIResponsesStreamToolCalls) setArguments(outputIndex int, itemID string, arguments string) {
+func (c *openAIResponsesStreamToolCalls) setArguments(outputIndex int, itemID string, arguments string) []core.StreamEvent {
 	call := c.ensure(outputIndex, itemID)
 	call.arguments.Reset()
 	call.arguments.WriteString(arguments)
+	events := c.startEvent(call)
+	return append(events, c.doneEvent(call)...)
 }
 
 func (c *openAIResponsesStreamToolCalls) ensure(outputIndex int, itemID string) *openAIResponsesStreamToolCall {
 	if c.calls == nil {
 		c.calls = make(map[string]*openAIResponsesStreamToolCall)
 		c.indexKeys = make(map[int]string)
+		c.started = make(map[string]bool)
+		c.done = make(map[string]bool)
 	}
 	key := itemID
 	if key == "" {
@@ -438,6 +517,14 @@ func (c *openAIResponsesStreamToolCalls) ensure(outputIndex int, itemID string) 
 			if call := c.calls[oldKey]; call != nil {
 				delete(c.calls, oldKey)
 				c.calls[key] = call
+				if c.started[oldKey] {
+					c.started[key] = true
+					delete(c.started, oldKey)
+				}
+				if c.done[oldKey] {
+					c.done[key] = true
+					delete(c.done, oldKey)
+				}
 				for i, ordered := range c.order {
 					if ordered == oldKey {
 						c.order[i] = key
@@ -460,6 +547,42 @@ func (c *openAIResponsesStreamToolCalls) ensure(outputIndex int, itemID string) 
 	return call
 }
 
+func (c *openAIResponsesStreamToolCalls) startEvent(call *openAIResponsesStreamToolCall) []core.StreamEvent {
+	if call == nil || c.started[call.key()] {
+		return nil
+	}
+	c.started[call.key()] = true
+	return []core.StreamEvent{openAIStreamToolCallBoundary(core.StreamEventToolCallStart, call.outputIndex, call.callID, call.name)}
+}
+
+func (c *openAIResponsesStreamToolCalls) doneEvent(call *openAIResponsesStreamToolCall) []core.StreamEvent {
+	if call == nil || c.done[call.key()] {
+		return nil
+	}
+	c.done[call.key()] = true
+	return []core.StreamEvent{openAIStreamToolCallBoundary(core.StreamEventToolCallDone, call.outputIndex, call.callID, call.name)}
+}
+
+func (c *openAIResponsesStreamToolCalls) doneEvents() []core.StreamEvent {
+	if len(c.order) == 0 {
+		return nil
+	}
+	events := make([]core.StreamEvent, 0, len(c.order))
+	for _, key := range c.order {
+		call := c.calls[key]
+		events = append(events, c.startEvent(call)...)
+		events = append(events, c.doneEvent(call)...)
+	}
+	return events
+}
+
+func (c *openAIResponsesStreamToolCall) key() string {
+	if c.itemID != "" {
+		return c.itemID
+	}
+	return fmt.Sprintf("index:%d", c.outputIndex)
+}
+
 func (c *openAIResponsesStreamToolCalls) toolCalls() ([]core.ToolCall, error) {
 	if len(c.order) == 0 {
 		return nil, nil
@@ -478,6 +601,22 @@ func (c *openAIResponsesStreamToolCalls) toolCalls() ([]core.ToolCall, error) {
 		})
 	}
 	return calls, nil
+}
+
+func (r openAIResponsesResponse) finishReason(defaultReason string) string {
+	if status := strings.TrimSpace(r.Status); status != "" {
+		return status
+	}
+	return defaultReason
+}
+
+func sendOpenAIStreamEvents(ctx context.Context, events chan<- core.StreamEvent, streamEvents []core.StreamEvent) error {
+	for _, event := range streamEvents {
+		if err := sendOpenAIStreamEvent(ctx, events, event); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func sendOpenAIStreamEvent(ctx context.Context, events chan<- core.StreamEvent, event core.StreamEvent) error {

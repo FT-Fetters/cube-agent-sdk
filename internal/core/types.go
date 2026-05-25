@@ -62,22 +62,45 @@ var (
 type StreamEventType string
 
 const (
-	StreamEventDelta StreamEventType = "delta"
-	StreamEventDone  StreamEventType = "done"
-	StreamEventError StreamEventType = "error"
+	StreamEventDelta         StreamEventType = "delta"
+	StreamEventDone          StreamEventType = "done"
+	StreamEventError         StreamEventType = "error"
+	StreamEventToolCallStart StreamEventType = "tool_call_start"
+	StreamEventToolCallDone  StreamEventType = "tool_call_done"
 )
 
+// StreamToolCall carries safe streamed tool-call boundary metadata. It never
+// includes tool arguments or result content.
+type StreamToolCall struct {
+	// ID is the provider tool-call ID when available.
+	ID string
+	// Name is the registered tool name when available.
+	Name string
+	// Index is the provider stream index when available.
+	Index int
+}
+
+// StreamFinishMetadata carries safe final stream completion metadata.
+type StreamFinishMetadata struct {
+	// Reason is the provider finish or stop reason when reported.
+	Reason string
+}
+
 // StreamEvent carries one item from a streaming run. Delta contains incremental
-// assistant text; Message and Usage are populated on done when available; Error
-// is populated on error.
+// assistant text. ToolCall contains safe metadata on tool-call boundary events.
+// Message, Usage, and Finish are populated on done when available; Error is
+// populated on error.
 type StreamEvent struct {
-	Type    StreamEventType
-	AgentID string
-	Delta   string
-	Message Message
+	Type     StreamEventType
+	AgentID  string
+	Delta    string
+	ToolCall StreamToolCall
+	Message  Message
 	// Usage reports final token counts when a streaming model/provider reports them.
 	Usage TokenUsage
-	Error error
+	// Finish reports safe provider completion metadata on final done events.
+	Finish StreamFinishMetadata
+	Error  error
 }
 
 // ModelRequest is the fully assembled prompt and capability set for one model call.

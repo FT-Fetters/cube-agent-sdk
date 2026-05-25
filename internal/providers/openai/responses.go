@@ -157,6 +157,7 @@ type openAIResponsesTool struct {
 type openAIResponsesResponse struct {
 	Output     []json.RawMessage    `json:"output"`
 	OutputText string               `json:"output_text,omitempty"`
+	Status     string               `json:"status,omitempty"`
 	Usage      openAIResponsesUsage `json:"usage"`
 }
 

@@ -844,6 +844,12 @@ func (a *Agent) forwardStreamRound(ctx context.Context, state activeStreamRound,
 			// Commit only after the caller receives final done so cancellation cannot persist an abandoned answer.
 			a.appendMessage(message)
 			return streamRoundOutcome{message: message, telemetry: telemetry}, true
+		case StreamEventToolCallStart, StreamEventToolCallDone:
+			// Boundary events are safe UI metadata only; discard any accidental
+			// payload fields from custom stream models before forwarding.
+			if !sendStreamEvent(ctx, out, sanitizeStreamToolCallBoundary(event)) {
+				return streamRoundOutcome{}, false
+			}
 		case StreamEventError:
 			if event.Error == nil {
 				event.Error = errors.New("agent: stream error")
@@ -1005,6 +1011,10 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		Error:           err,
 	})
 	_ = sendStreamErrorEvent(ctx, out, agentID, err)
+}
+
+func sanitizeStreamToolCallBoundary(event StreamEvent) StreamEvent {
+	return StreamEvent{Type: event.Type, AgentID: event.AgentID, ToolCall: event.ToolCall}
 }
 
 func sendStreamErrorEvent(ctx context.Context, out chan<- StreamEvent, agentID string, err error) bool {

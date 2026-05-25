@@ -308,13 +308,18 @@ func TestOpenAICompatibleModelStreamMapsToolCallDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := collectStreamEvents(t, events)
-	if len(got) != 2 {
-		t.Fatalf("stream events = %#v, want delta and done", got)
+	if len(got) != 4 {
+		t.Fatalf("stream events = %#v, want delta, tool start, tool done, done", got)
 	}
 	if got[0].Type != StreamEventDelta || got[0].Delta != "Checking " {
 		t.Fatalf("first stream event = %#v, want text delta", got[0])
 	}
-	assertStreamDoneToolCall(t, got[1], "Checking ", "call-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18})
+	assertStreamToolCallBoundary(t, got[1], StreamEventToolCallStart, 0, "call-1", "search")
+	assertStreamToolCallBoundary(t, got[2], StreamEventToolCallDone, 0, "call-1", "search")
+	assertStreamDoneToolCall(t, got[3], "Checking ", "call-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18})
+	if got[3].Finish.Reason != "tool_calls" {
+		t.Fatalf("done finish metadata = %#v, want tool_calls", got[3].Finish)
+	}
 }
 
 func TestOpenAICompatibleModelStreamRejectsInvalidToolCallArgumentsSafely(t *testing.T) {
@@ -560,6 +565,16 @@ func assertProviderStreamSuccess(t *testing.T, events []StreamEvent, firstDelta 
 	}
 	if events[2].Usage != usage {
 		t.Fatalf("done usage = %#v, want %#v", events[2].Usage, usage)
+	}
+}
+
+func assertStreamToolCallBoundary(t *testing.T, event StreamEvent, eventType StreamEventType, index int, id string, name string) {
+	t.Helper()
+	if event.Type != eventType {
+		t.Fatalf("stream event = %#v, want %s", event, eventType)
+	}
+	if event.ToolCall.Index != index || event.ToolCall.ID != id || event.ToolCall.Name != name {
+		t.Fatalf("stream tool call metadata = %#v, want index %d id %q name %q", event.ToolCall, index, id, name)
 	}
 }
 

@@ -323,10 +323,15 @@ func TestOpenAIResponsesModelStreamMapsFunctionCallEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := collectStreamEvents(t, events)
-	if len(got) != 1 {
-		t.Fatalf("stream events = %#v, want done", got)
+	if len(got) != 3 {
+		t.Fatalf("stream events = %#v, want tool start, tool done, done", got)
 	}
-	assertStreamDoneToolCall(t, got[0], "", "call-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 13, OutputTokens: 5, TotalTokens: 18})
+	assertStreamToolCallBoundary(t, got[0], StreamEventToolCallStart, 0, "call-1", "search")
+	assertStreamToolCallBoundary(t, got[1], StreamEventToolCallDone, 0, "call-1", "search")
+	assertStreamDoneToolCall(t, got[2], "", "call-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 13, OutputTokens: 5, TotalTokens: 18})
+	if got[2].Finish.Reason != "completed" {
+		t.Fatalf("done finish metadata = %#v, want completed", got[2].Finish)
+	}
 }
 
 func TestOpenAIResponsesModelStreamRejectsInvalidFunctionCallArgumentsSafely(t *testing.T) {

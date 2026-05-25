@@ -27,11 +27,15 @@ var (
 type StreamEventType = core.StreamEventType
 
 const (
-	StreamEventDelta = core.StreamEventDelta
-	StreamEventDone  = core.StreamEventDone
-	StreamEventError = core.StreamEventError
+	StreamEventDelta         = core.StreamEventDelta
+	StreamEventDone          = core.StreamEventDone
+	StreamEventError         = core.StreamEventError
+	StreamEventToolCallStart = core.StreamEventToolCallStart
+	StreamEventToolCallDone  = core.StreamEventToolCallDone
 )
 
+type StreamToolCall = core.StreamToolCall
+type StreamFinishMetadata = core.StreamFinishMetadata
 type StreamEvent = core.StreamEvent
 type ModelRequest = core.ModelRequest
 type TokenUsage = core.TokenUsage

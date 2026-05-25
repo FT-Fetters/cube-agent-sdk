@@ -1962,6 +1962,79 @@ func TestAgentRunStreamExecutesToolCallsAndContinuesStreaming(t *testing.T) {
 	}
 }
 
+func TestAgentRunStreamPassesThroughToolCallBoundariesWithoutObservingPayloads(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEvents: []StreamEvent{
+		{Type: StreamEventDelta, Delta: "classified lead "},
+		{
+			Type:  StreamEventToolCallStart,
+			Delta: "classified-boundary-delta",
+			ToolCall: StreamToolCall{
+				ID:    "call-1",
+				Name:  "lookup",
+				Index: 0,
+			},
+			Message: Message{
+				Content: "classified-boundary-message",
+				ToolCalls: []ToolCall{{
+					ID:        "call-1",
+					Name:      "lookup",
+					Arguments: map[string]any{"secret": "classified-boundary-argument"},
+				}},
+			},
+		},
+		{
+			Type: StreamEventToolCallDone,
+			ToolCall: StreamToolCall{
+				ID:    "call-1",
+				Name:  "lookup",
+				Index: 0,
+			},
+		},
+		{
+			Type:   StreamEventDone,
+			Usage:  TokenUsage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5},
+			Finish: StreamFinishMetadata{Reason: "stop"},
+		},
+	}}
+	recorder := &recordingObserver{}
+	agent, err := New(Config{ID: "stream-agent"}, model, WithObserver(recorder))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "start", WithStreamObservations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+
+	if len(got) != 4 {
+		t.Fatalf("stream events = %#v, want delta, tool start, tool done, done", got)
+	}
+	if got[1].Type != StreamEventToolCallStart || got[1].ToolCall.ID != "call-1" || got[1].ToolCall.Name != "lookup" || got[1].ToolCall.Index != 0 {
+		t.Fatalf("tool start event = %#v, want safe tool metadata", got[1])
+	}
+	if got[1].Delta != "" || got[1].Message.Content != "" || len(got[1].Message.ToolCalls) != 0 {
+		t.Fatalf("tool start payload = %#v, want unsafe payload fields stripped", got[1])
+	}
+	if got[2].Type != StreamEventToolCallDone || got[2].ToolCall.ID != "call-1" || got[2].ToolCall.Name != "lookup" || got[2].ToolCall.Index != 0 {
+		t.Fatalf("tool done event = %#v, want safe tool metadata", got[2])
+	}
+	if got[3].Type != StreamEventDone || got[3].Usage.TotalTokens != 5 || got[3].Finish.Reason != "stop" {
+		t.Fatalf("done event = %#v, want usage and finish metadata", got[3])
+	}
+
+	observations := recorder.Observations()
+	wantTypes := []EventType{EventStreamStart, EventStreamFirstDelta, EventStreamDone}
+	if got := streamLifecycleObservationTypes(observations); !reflect.DeepEqual(got, wantTypes) {
+		t.Fatalf("stream lifecycle observations = %#v, want %#v", got, wantTypes)
+	}
+	for _, observation := range observations {
+		assertObservationDoesNotContain(t, observation, "classified")
+	}
+}
+
 func TestAgentRunStreamToolApprovalDeniedEmitsError(t *testing.T) {
 	ctx := context.Background()
 	model := &streamingRecordingModel{streamEventBatches: [][]StreamEvent{
