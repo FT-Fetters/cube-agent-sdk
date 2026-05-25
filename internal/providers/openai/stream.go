@@ -138,11 +138,15 @@ type openAIChatCompletionStreamDelta struct {
 }
 
 type openAIResponsesStreamEvent struct {
-	Type     string                  `json:"type"`
-	Delta    string                  `json:"delta"`
-	Text     string                  `json:"text"`
-	Response openAIResponsesResponse `json:"response"`
-	Error    *openAIStreamError      `json:"error"`
+	Type        string                    `json:"type"`
+	Delta       string                    `json:"delta"`
+	Text        string                    `json:"text"`
+	OutputIndex int                       `json:"output_index"`
+	ItemID      string                    `json:"item_id"`
+	Arguments   string                    `json:"arguments"`
+	Item        openAIResponsesOutputItem `json:"item"`
+	Response    openAIResponsesResponse   `json:"response"`
+	Error       *openAIStreamError        `json:"error"`
 }
 
 type openAIStreamError struct {
@@ -153,6 +157,7 @@ type openAIStreamError struct {
 
 func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events chan<- core.StreamEvent, diagnostics core.ProviderDiagnostics) {
 	var content strings.Builder
+	var toolCalls openAICompatibleStreamToolCalls
 	var usage core.TokenUsage
 	var done bool
 
@@ -162,11 +167,19 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 			return nil
 		}
 		if data == "[DONE]" {
+			calls, err := toolCalls.toolCalls()
+			if err != nil {
+				return sendOpenAIStreamError(ctx, events, core.NewProviderDecodeError("decode openai-compatible streamed tool call arguments", diagnostics, err))
+			}
 			done = true
 			return sendOpenAIStreamEvent(ctx, events, core.StreamEvent{
-				Type:    core.StreamEventDone,
-				Message: core.Message{Role: RoleAssistant, Content: content.String()},
-				Usage:   usage,
+				Type: core.StreamEventDone,
+				Message: core.Message{
+					Role:      RoleAssistant,
+					Content:   content.String(),
+					ToolCalls: core.CloneToolCalls(calls),
+				},
+				Usage: usage,
 			})
 		}
 
@@ -181,8 +194,8 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 			usage = chunk.Usage.tokenUsage()
 		}
 		for _, choice := range chunk.Choices {
-			if len(choice.Delta.ToolCalls) > 0 || choice.FinishReason == "tool_calls" {
-				return sendOpenAIStreamError(ctx, events, core.ErrStreamingToolCallsUnsupported)
+			if len(choice.Delta.ToolCalls) > 0 {
+				toolCalls.add(choice.Delta.ToolCalls)
 			}
 			if choice.Delta.Content == nil || *choice.Delta.Content == "" {
 				continue
@@ -207,9 +220,81 @@ func streamOpenAICompatibleEvents(ctx context.Context, body io.Reader, events ch
 	}
 }
 
+// openAICompatibleStreamToolCalls reconstructs tool call deltas by index. Some
+// OpenAI-compatible providers stream IDs and names before argument fragments.
+type openAICompatibleStreamToolCalls struct {
+	calls map[int]*openAICompatibleStreamToolCall
+	order []int
+}
+
+type openAICompatibleStreamToolCall struct {
+	id        string
+	name      string
+	arguments strings.Builder
+}
+
+func (c *openAICompatibleStreamToolCalls) add(deltas []openAIChatToolCall) {
+	for _, delta := range deltas {
+		call := c.ensure(delta.Index)
+		call.id = appendOpenAIStreamValue(call.id, delta.ID)
+		call.name = appendOpenAIStreamValue(call.name, delta.Function.Name)
+		call.arguments.WriteString(delta.Function.Arguments)
+	}
+}
+
+func (c *openAICompatibleStreamToolCalls) ensure(index int) *openAICompatibleStreamToolCall {
+	if c.calls == nil {
+		c.calls = make(map[int]*openAICompatibleStreamToolCall)
+	}
+	call := c.calls[index]
+	if call == nil {
+		call = &openAICompatibleStreamToolCall{}
+		c.calls[index] = call
+		c.order = append(c.order, index)
+	}
+	return call
+}
+
+func (c *openAICompatibleStreamToolCalls) toolCalls() ([]core.ToolCall, error) {
+	if len(c.order) == 0 {
+		return nil, nil
+	}
+	calls := make([]core.ToolCall, 0, len(c.order))
+	for _, index := range c.order {
+		call := c.calls[index]
+		arguments, err := openAIParseToolCallArguments(call.arguments.String(), call.name, call.id)
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, core.ToolCall{
+			ID:        call.id,
+			Name:      call.name,
+			Arguments: arguments,
+		})
+	}
+	return calls, nil
+}
+
+func appendOpenAIStreamValue(existing string, fragment string) string {
+	if fragment == "" {
+		return existing
+	}
+	if existing == "" || existing == fragment {
+		return fragment
+	}
+	if strings.HasPrefix(fragment, existing) {
+		return fragment
+	}
+	if strings.HasPrefix(existing, fragment) {
+		return existing
+	}
+	return existing + fragment
+}
+
 func streamOpenAIResponseEvents(ctx context.Context, body io.Reader, events chan<- core.StreamEvent, diagnostics core.ProviderDiagnostics) {
 	var content strings.Builder
 	var finalText string
+	var toolCalls openAIResponsesStreamToolCalls
 	var done bool
 
 	err := providersse.Read(ctx, body, func(event providersse.Event) error {
@@ -234,20 +319,38 @@ func streamOpenAIResponseEvents(ctx context.Context, body io.Reader, events chan
 			return sendOpenAIStreamEvent(ctx, events, core.StreamEvent{Type: core.StreamEventDelta, Delta: decoded.Delta})
 		case "response.output_text.done":
 			finalText = decoded.Text
+		case "response.output_item.added", "response.output_item.done":
+			toolCalls.addItem(decoded.OutputIndex, decoded.ItemID, decoded.Item)
+		case "response.function_call_arguments.delta":
+			toolCalls.appendArguments(decoded.OutputIndex, decoded.ItemID, decoded.Delta)
+		case "response.function_call_arguments.done":
+			toolCalls.setArguments(decoded.OutputIndex, decoded.ItemID, decoded.Arguments)
 		case "response.completed":
 			response, err := decoded.Response.modelResponse()
+			streamCalls, streamCallErr := toolCalls.toolCalls()
+			if streamCallErr != nil && (err != nil || len(response.Message.ToolCalls) == 0) {
+				return sendOpenAIStreamError(ctx, events, core.NewProviderDecodeError("decode openai responses streamed function call arguments", diagnostics, streamCallErr))
+			}
 			if err != nil {
 				text := finalText
 				if text == "" {
 					text = content.String()
 				}
-				if text == "" {
+				if text == "" && len(streamCalls) == 0 {
 					return sendOpenAIStreamError(ctx, events, core.NewProviderDecodeError("decode openai responses completed event", diagnostics, err))
 				}
 				response = ModelResponse{
-					Message: Message{Role: RoleAssistant, Content: text},
-					Usage:   decoded.Response.Usage.tokenUsage(),
+					Message: Message{
+						Role:      RoleAssistant,
+						Content:   text,
+						ToolCalls: core.CloneToolCalls(streamCalls),
+					},
+					ToolCalls: streamCalls,
+					Usage:     decoded.Response.Usage.tokenUsage(),
 				}
+			} else if len(streamCalls) > 0 && len(response.Message.ToolCalls) == 0 {
+				response.ToolCalls = streamCalls
+				response.Message.ToolCalls = core.CloneToolCalls(streamCalls)
 			}
 			if response.Message.Content == "" {
 				response.Message.Content = content.String()
@@ -269,6 +372,112 @@ func streamOpenAIResponseEvents(ctx context.Context, body io.Reader, events chan
 	if !done {
 		_ = sendOpenAIStreamError(ctx, events, core.NewProviderDecodeError("decode openai responses stream", diagnostics, errors.New("stream ended before response.completed")))
 	}
+}
+
+// openAIResponsesStreamToolCalls reconstructs Responses API function-call
+// output items from semantic streaming events when the completed response omits them.
+type openAIResponsesStreamToolCalls struct {
+	calls     map[string]*openAIResponsesStreamToolCall
+	order     []string
+	indexKeys map[int]string
+}
+
+type openAIResponsesStreamToolCall struct {
+	outputIndex int
+	itemID      string
+	callID      string
+	name        string
+	arguments   strings.Builder
+}
+
+func (c *openAIResponsesStreamToolCalls) addItem(outputIndex int, itemID string, item openAIResponsesOutputItem) {
+	if item.Type != "function_call" {
+		return
+	}
+	if itemID == "" {
+		itemID = item.ID
+	}
+	call := c.ensure(outputIndex, itemID)
+	call.itemID = appendOpenAIStreamValue(call.itemID, item.ID)
+	call.callID = appendOpenAIStreamValue(call.callID, item.CallID)
+	call.name = appendOpenAIStreamValue(call.name, item.Name)
+	if item.Arguments != "" {
+		call.arguments.Reset()
+		call.arguments.WriteString(item.Arguments)
+	}
+}
+
+func (c *openAIResponsesStreamToolCalls) appendArguments(outputIndex int, itemID string, delta string) {
+	if delta == "" {
+		return
+	}
+	call := c.ensure(outputIndex, itemID)
+	call.arguments.WriteString(delta)
+}
+
+func (c *openAIResponsesStreamToolCalls) setArguments(outputIndex int, itemID string, arguments string) {
+	call := c.ensure(outputIndex, itemID)
+	call.arguments.Reset()
+	call.arguments.WriteString(arguments)
+}
+
+func (c *openAIResponsesStreamToolCalls) ensure(outputIndex int, itemID string) *openAIResponsesStreamToolCall {
+	if c.calls == nil {
+		c.calls = make(map[string]*openAIResponsesStreamToolCall)
+		c.indexKeys = make(map[int]string)
+	}
+	key := itemID
+	if key == "" {
+		key = c.indexKeys[outputIndex]
+	}
+	if key == "" {
+		key = fmt.Sprintf("index:%d", outputIndex)
+	}
+	if itemID != "" {
+		if oldKey := c.indexKeys[outputIndex]; oldKey != "" && oldKey != key {
+			if call := c.calls[oldKey]; call != nil {
+				delete(c.calls, oldKey)
+				c.calls[key] = call
+				for i, ordered := range c.order {
+					if ordered == oldKey {
+						c.order[i] = key
+						break
+					}
+				}
+			}
+		}
+		c.indexKeys[outputIndex] = key
+	}
+	call := c.calls[key]
+	if call == nil {
+		call = &openAIResponsesStreamToolCall{outputIndex: outputIndex, itemID: itemID}
+		c.calls[key] = call
+		c.order = append(c.order, key)
+	}
+	if itemID != "" {
+		call.itemID = appendOpenAIStreamValue(call.itemID, itemID)
+	}
+	return call
+}
+
+func (c *openAIResponsesStreamToolCalls) toolCalls() ([]core.ToolCall, error) {
+	if len(c.order) == 0 {
+		return nil, nil
+	}
+	calls := make([]core.ToolCall, 0, len(c.order))
+	for _, key := range c.order {
+		call := c.calls[key]
+		arguments, err := openAIParseToolCallArguments(call.arguments.String(), call.name, call.callID)
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, core.ToolCall{
+			ID:        call.callID,
+			Name:      call.name,
+			Arguments: arguments,
+		})
+	}
+	return calls, nil
 }
 
 func sendOpenAIStreamEvent(ctx context.Context, events chan<- core.StreamEvent, event core.StreamEvent) error {

@@ -55,8 +55,10 @@ does not emit per-delta observations beyond the first delta.
 
 ## Current Limitations
 
-Streamed tool calls are not executed yet. If a streaming model emits tool calls,
-the SDK reports `ErrStreamingToolCallsUnsupported`.
+`RunStream` executes tool calls that arrive on final done messages. Built-in
+OpenAI-compatible, OpenAI Responses, and Anthropic Messages adapters normalize
+supported streamed tool-call shapes into those done messages. The public stream
+event model does not expose separate tool-call start and done boundary events yet.
 
 If a provider rejects the initial streaming HTTP request, `RunStream` returns a
 structured provider error immediately. If the provider stream starts and then

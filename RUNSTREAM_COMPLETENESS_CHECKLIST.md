@@ -29,7 +29,7 @@
     - Existing single-run behavior is unchanged.
   - Implementation choice: same-agent `Run` and `RunStream` calls are serialized with a context-aware run slot; callback reentry with the active run context returns `run.active`, and canceled waiters return `run.acquire`.
 
-- [ ] **4. Provider streamed tool-call normalization**
+- [x] **4. Provider streamed tool-call normalization**
   - Normalize built-in provider adapters so streamed tool-call signals become SDK tool-call events instead of provider-specific unsupported errors.
   - Acceptance criteria:
     - OpenAI-compatible stream chunks can accumulate streamed function-call IDs, names, and JSON arguments.

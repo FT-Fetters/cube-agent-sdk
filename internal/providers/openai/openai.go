@@ -152,6 +152,7 @@ type openAIChatCompletionFunction struct {
 }
 
 type openAIChatToolCall struct {
+	Index    int                    `json:"index,omitempty"`
 	ID       string                 `json:"id,omitempty"`
 	Type     string                 `json:"type"`
 	Function openAIChatToolFunction `json:"function"`

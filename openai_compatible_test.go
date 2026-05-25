@@ -284,6 +284,70 @@ func TestOpenAICompatibleModelStreamsDeltasDoneAndUsage(t *testing.T) {
 	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18})
 }
 
+func TestOpenAICompatibleModelStreamMapsToolCallDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEData(t, w, `{"choices":[{"delta":{"role":"assistant","content":"Checking "}}],"usage":null}`)
+		writeSSEData(t, w, `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-","type":"function","function":{"name":"sea","arguments":`+strconvQuote(`{"query"`)+`}}]}}],"usage":null}`)
+		writeSSEData(t, w, `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"1","function":{"name":"rch","arguments":`+strconvQuote(`:"docs","limit":3}`)+`}}]},"finish_reason":"tool_calls"}],"usage":null}`)
+		writeSSEData(t, w, `{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`)
+		writeSSEData(t, w, `[DONE]`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAICompatibleModel(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if len(got) != 2 {
+		t.Fatalf("stream events = %#v, want delta and done", got)
+	}
+	if got[0].Type != StreamEventDelta || got[0].Delta != "Checking " {
+		t.Fatalf("first stream event = %#v, want text delta", got[0])
+	}
+	assertStreamDoneToolCall(t, got[1], "Checking ", "call-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18})
+}
+
+func TestOpenAICompatibleModelStreamRejectsInvalidToolCallArgumentsSafely(t *testing.T) {
+	const rawProviderPayload = "secret-raw-provider-payload"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEData(t, w, `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"search","arguments":`+strconvQuote(rawProviderPayload)+`}}]},"finish_reason":"tool_calls"}]}`)
+		writeSSEData(t, w, `[DONE]`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAICompatibleModel(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	assertProviderStreamError(t, got, ProviderDiagnostics{
+		Provider:     "openai-compatible",
+		EndpointHost: server.Listener.Addr().String(),
+	}, ModelErrorSubcategoryDecodeError)
+	if strings.Contains(got[0].Error.Error(), rawProviderPayload) {
+		t.Fatalf("stream error exposed unsafe provider detail: %v", got[0].Error)
+	}
+}
+
 func TestOpenAICompatibleModelStreamEmitsDecodeErrorWithDiagnostics(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -496,6 +560,26 @@ func assertProviderStreamSuccess(t *testing.T, events []StreamEvent, firstDelta 
 	}
 	if events[2].Usage != usage {
 		t.Fatalf("done usage = %#v, want %#v", events[2].Usage, usage)
+	}
+}
+
+func assertStreamDoneToolCall(t *testing.T, event StreamEvent, content string, id string, name string, arguments map[string]any, usage TokenUsage) {
+	t.Helper()
+	if event.Type != StreamEventDone {
+		t.Fatalf("done stream event = %#v, want done", event)
+	}
+	if event.Message.Role != RoleAssistant || event.Message.Content != content {
+		t.Fatalf("done message = %#v, want assistant %q", event.Message, content)
+	}
+	if len(event.Message.ToolCalls) != 1 {
+		t.Fatalf("done message tool calls = %#v, want one", event.Message.ToolCalls)
+	}
+	call := event.Message.ToolCalls[0]
+	if call.ID != id || call.Name != name || !mapsEqual(call.Arguments, arguments) {
+		t.Fatalf("tool call = %#v, want %s %s %#v", call, id, name, arguments)
+	}
+	if event.Usage != usage {
+		t.Fatalf("done usage = %#v, want %#v", event.Usage, usage)
 	}
 }
 

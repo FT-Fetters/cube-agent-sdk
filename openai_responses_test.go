@@ -299,6 +299,68 @@ func TestOpenAIResponsesModelStreamsDeltasDoneAndUsage(t *testing.T) {
 	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 13, OutputTokens: 5, TotalTokens: 18})
 }
 
+func TestOpenAIResponsesModelStreamMapsFunctionCallEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "response.output_item.added", `{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call-1","name":"search","arguments":""}}`)
+		writeSSEEvent(t, w, "response.function_call_arguments.delta", `{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":`+strconvQuote(`{"query"`)+`}`)
+		writeSSEEvent(t, w, "response.function_call_arguments.delta", `{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":`+strconvQuote(`:"docs","limit":3}`)+`}`)
+		writeSSEEvent(t, w, "response.function_call_arguments.done", `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":`+strconvQuote(`{"query":"docs","limit":3}`)+`}`)
+		writeSSEEvent(t, w, "response.completed", `{"type":"response.completed","response":{"usage":{"input_tokens":13,"output_tokens":5,"total_tokens":18}}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAIResponsesModel(OpenAIResponsesConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if len(got) != 1 {
+		t.Fatalf("stream events = %#v, want done", got)
+	}
+	assertStreamDoneToolCall(t, got[0], "", "call-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 13, OutputTokens: 5, TotalTokens: 18})
+}
+
+func TestOpenAIResponsesModelStreamRejectsInvalidFunctionCallArgumentsSafely(t *testing.T) {
+	const rawProviderPayload = "secret-raw-provider-payload"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "response.output_item.added", `{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call-1","name":"search","arguments":""}}`)
+		writeSSEEvent(t, w, "response.function_call_arguments.done", `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":`+strconvQuote(rawProviderPayload)+`}`)
+		writeSSEEvent(t, w, "response.completed", `{"type":"response.completed","response":{"usage":{"input_tokens":13,"output_tokens":5,"total_tokens":18}}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAIResponsesModel(OpenAIResponsesConfig{
+		BaseURL: server.URL,
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	assertProviderStreamError(t, got, ProviderDiagnostics{
+		Provider:     "openai-responses",
+		EndpointHost: server.Listener.Addr().String(),
+	}, ModelErrorSubcategoryDecodeError)
+	if strings.Contains(got[0].Error.Error(), rawProviderPayload) {
+		t.Fatalf("stream error exposed unsafe provider detail: %v", got[0].Error)
+	}
+}
+
 func TestOpenAIResponsesModelStreamEmitsProviderErrorWithDiagnostics(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

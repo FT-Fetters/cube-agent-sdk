@@ -23,6 +23,7 @@ func NewOpenAIResponsesModel(config OpenAIResponsesConfig) (*OpenAIResponsesMode
 	return openai.NewOpenAIResponsesModel(config)
 }
 
+type AnthropicThinkingConfig = anthropic.AnthropicThinkingConfig
 type AnthropicMessagesConfig = anthropic.AnthropicMessagesConfig
 type AnthropicMessagesModel = anthropic.AnthropicMessagesModel
 

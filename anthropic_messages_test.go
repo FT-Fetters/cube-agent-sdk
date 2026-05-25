@@ -131,6 +131,40 @@ func TestAnthropicMessagesModelSendsMessagesRequest(t *testing.T) {
 	}
 }
 
+func TestAnthropicMessagesModelSendsThinkingConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload anthropicMessagesRequestForTest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Thinking == nil {
+			t.Fatal("thinking config is nil, want request thinking config")
+		}
+		if payload.Thinking.Type != "adaptive" || payload.Thinking.Display != "summarized" {
+			t.Fatalf("thinking config = %#v, want adaptive summarized", payload.Thinking)
+		}
+		_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"ok"}]}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+		Thinking: &AnthropicThinkingConfig{
+			Type:    "adaptive",
+			Display: "summarized",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := model.Generate(context.Background(), ModelRequest{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAnthropicMessagesModelUsesFullMessagesURLAndCustomVersion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/custom/v1/messages" {
@@ -192,6 +226,103 @@ func TestAnthropicMessagesModelParsesToolUse(t *testing.T) {
 	}
 	if call.Arguments["query"] != "docs" || call.Arguments["limit"] != float64(3) {
 		t.Fatalf("tool arguments = %#v, want docs limit 3", call.Arguments)
+	}
+}
+
+func TestAnthropicMessagesModelPreservesThinkingBlocksAndReplaysRawContent(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch requests {
+		case 1:
+			_, _ = io.WriteString(w, `{
+				"id": "msg_1",
+				"type": "message",
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "Need to search first.", "signature": "thinking-signature-1"},
+					{"type": "redacted_thinking", "data": "encrypted-redacted-thinking-1"},
+					{"type": "text", "text": "I will search."},
+					{"type": "tool_use", "id": "toolu-1", "name": "search", "input": {"query": "docs", "limit": 3}}
+				],
+				"stop_reason": "tool_use"
+			}`)
+		case 2:
+			var payload anthropicMessagesRequestForTest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(payload.Messages) != 2 {
+				t.Fatalf("messages = %#v, want assistant raw content and user tool_result", payload.Messages)
+			}
+			assistantBlocks, ok := payload.Messages[0].Content.([]anthropicContentBlockForTest)
+			if !ok {
+				t.Fatalf("assistant content = %#v, want raw block array", payload.Messages[0].Content)
+			}
+			if len(assistantBlocks) != 4 {
+				t.Fatalf("assistant blocks = %#v, want preserved thinking, redacted_thinking, text, and tool_use", assistantBlocks)
+			}
+			if assistantBlocks[0].Type != "thinking" || assistantBlocks[0].Thinking != "Need to search first." || assistantBlocks[0].Signature != "thinking-signature-1" {
+				t.Fatalf("thinking block = %#v, want unmodified thinking block", assistantBlocks[0])
+			}
+			if assistantBlocks[1].Type != "redacted_thinking" || assistantBlocks[1].Data != "encrypted-redacted-thinking-1" {
+				t.Fatalf("redacted thinking block = %#v, want unmodified redacted_thinking block", assistantBlocks[1])
+			}
+			if assistantBlocks[2].Type != "text" || assistantBlocks[2].Text != "I will search." {
+				t.Fatalf("text block = %#v, want preserved text block", assistantBlocks[2])
+			}
+			if assistantBlocks[3].Type != "tool_use" || assistantBlocks[3].ID != "toolu-1" || assistantBlocks[3].Name != "search" {
+				t.Fatalf("tool_use block = %#v, want preserved tool_use block", assistantBlocks[3])
+			}
+			if assistantBlocks[3].Input["query"] != "docs" || assistantBlocks[3].Input["limit"] != float64(3) {
+				t.Fatalf("tool_use input = %#v, want original input", assistantBlocks[3].Input)
+			}
+			toolResultBlocks, ok := payload.Messages[1].Content.([]anthropicContentBlockForTest)
+			if !ok || len(toolResultBlocks) != 1 || toolResultBlocks[0].Type != "tool_result" {
+				t.Fatalf("tool result content = %#v, want tool_result block", payload.Messages[1].Content)
+			}
+			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"Final"}]}`)
+		default:
+			t.Fatalf("unexpected request %d", requests)
+		}
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := model.Generate(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Message.Content != "I will search." {
+		t.Fatalf("content = %q, want text block", first.Message.Content)
+	}
+	if len(first.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %#v, want one", first.ToolCalls)
+	}
+	rawContent, ok := first.Message.Metadata["anthropic_messages_content"].([]map[string]any)
+	if !ok || len(rawContent) != 4 {
+		t.Fatalf("metadata raw content = %#v, want four preserved blocks", first.Message.Metadata["anthropic_messages_content"])
+	}
+
+	second, err := model.Generate(context.Background(), ModelRequest{
+		Messages: []Message{
+			first.Message,
+			{Role: RoleTool, Name: "search", ToolCallID: "toolu-1", Content: "Search result"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Message.Content != "Final" {
+		t.Fatalf("second content = %q, want Final", second.Message.Content)
 	}
 }
 
@@ -274,6 +405,123 @@ func TestAnthropicMessagesModelStreamsDeltasDoneAndUsage(t *testing.T) {
 		t.Fatal("server did not receive a request")
 	}
 	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26})
+}
+
+func TestAnthropicMessagesModelStreamPreservesThinkingMetadataOnDone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "message_start", `{"type":"message_start","message":{"usage":{"input_tokens":17}}}`)
+		writeSSEEvent(t, w, "content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Need to answer carefully."}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"stream-signature-1"}}`)
+		writeSSEEvent(t, w, "content_block_stop", `{"type":"content_block_stop","index":0}`)
+		writeSSEEvent(t, w, "content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Hel"}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"lo"}}`)
+		writeSSEEvent(t, w, "message_delta", `{"type":"message_delta","usage":{"output_tokens":9}}`)
+		writeSSEEvent(t, w, "message_stop", `{"type":"message_stop"}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	assertProviderStreamSuccess(t, got, "Hel", "lo", "Hello", TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26})
+	rawContent, ok := got[2].Message.Metadata["anthropic_messages_content"].([]map[string]any)
+	if !ok || len(rawContent) != 2 {
+		t.Fatalf("metadata raw content = %#v, want thinking and text blocks", got[2].Message.Metadata["anthropic_messages_content"])
+	}
+	if rawContent[0]["type"] != "thinking" || rawContent[0]["thinking"] != "Need to answer carefully." || rawContent[0]["signature"] != "stream-signature-1" {
+		t.Fatalf("thinking metadata = %#v, want reconstructed thinking block", rawContent[0])
+	}
+	if rawContent[1]["type"] != "text" || rawContent[1]["text"] != "Hello" {
+		t.Fatalf("text metadata = %#v, want reconstructed text block", rawContent[1])
+	}
+}
+
+func TestAnthropicMessagesModelStreamMapsToolUseBlocks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "message_start", `{"type":"message_start","message":{"usage":{"input_tokens":17}}}`)
+		writeSSEEvent(t, w, "content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu-1","name":"search","input":{}}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":`+strconvQuote(`{"query"`)+`}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":`+strconvQuote(`:"docs","limit":3}`)+`}}`)
+		writeSSEEvent(t, w, "content_block_stop", `{"type":"content_block_stop","index":0}`)
+		writeSSEEvent(t, w, "message_delta", `{"type":"message_delta","usage":{"output_tokens":9}}`)
+		writeSSEEvent(t, w, "message_stop", `{"type":"message_stop"}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	if len(got) != 1 {
+		t.Fatalf("stream events = %#v, want done", got)
+	}
+	assertStreamDoneToolCall(t, got[0], "", "toolu-1", "search", map[string]any{"query": "docs", "limit": float64(3)}, TokenUsage{InputTokens: 17, OutputTokens: 9, TotalTokens: 26})
+	rawContent, ok := got[0].Message.Metadata["anthropic_messages_content"].([]map[string]any)
+	if !ok || len(rawContent) != 1 {
+		t.Fatalf("metadata raw content = %#v, want tool_use block", got[0].Message.Metadata["anthropic_messages_content"])
+	}
+	input, ok := rawContent[0]["input"].(map[string]any)
+	if rawContent[0]["type"] != "tool_use" || rawContent[0]["id"] != "toolu-1" || !ok || input["query"] != "docs" || input["limit"] != float64(3) {
+		t.Fatalf("tool_use metadata = %#v, want reconstructed input", rawContent[0])
+	}
+}
+
+func TestAnthropicMessagesModelStreamRejectsInvalidToolUseInputSafely(t *testing.T) {
+	const rawProviderPayload = "secret-raw-provider-payload"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEEvent(t, w, "content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu-1","name":"search","input":{}}}`)
+		writeSSEEvent(t, w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":`+strconvQuote(rawProviderPayload)+`}}`)
+		writeSSEEvent(t, w, "message_stop", `{"type":"message_stop"}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, events)
+	assertProviderStreamError(t, got, ProviderDiagnostics{
+		Provider:     "anthropic-messages",
+		EndpointHost: server.Listener.Addr().String(),
+	}, ModelErrorSubcategoryDecodeError)
+	if strings.Contains(got[0].Error.Error(), rawProviderPayload) {
+		t.Fatalf("stream error exposed unsafe provider detail: %v", got[0].Error)
+	}
 }
 
 func TestAnthropicMessagesModelStreamEmitsProviderErrorWithDiagnostics(t *testing.T) {
@@ -396,12 +644,13 @@ func newOpenAICompatibleTestHandler(t *testing.T) http.HandlerFunc {
 }
 
 type anthropicMessagesRequestForTest struct {
-	Model     string                    `json:"model"`
-	MaxTokens int                       `json:"max_tokens"`
-	System    string                    `json:"system"`
-	Messages  []anthropicMessageForTest `json:"messages"`
-	Tools     []anthropicToolDefForTest `json:"tools"`
-	Stream    bool                      `json:"stream"`
+	Model     string                          `json:"model"`
+	MaxTokens int                             `json:"max_tokens"`
+	System    string                          `json:"system"`
+	Messages  []anthropicMessageForTest       `json:"messages"`
+	Tools     []anthropicToolDefForTest       `json:"tools"`
+	Thinking  *anthropicThinkingConfigForTest `json:"thinking"`
+	Stream    bool                            `json:"stream"`
 }
 
 type anthropicMessageForTest struct {
@@ -442,6 +691,15 @@ type anthropicContentBlockForTest struct {
 	Input     map[string]any `json:"input"`
 	ToolUseID string         `json:"tool_use_id"`
 	Content   string         `json:"content"`
+	Thinking  string         `json:"thinking"`
+	Signature string         `json:"signature"`
+	Data      string         `json:"data"`
+}
+
+type anthropicThinkingConfigForTest struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens"`
+	Display      string `json:"display"`
 }
 
 type anthropicToolDefForTest struct {

@@ -19,6 +19,8 @@ const (
 	defaultAnthropicVersion   = "2023-06-01"
 	defaultAnthropicMaxTokens = 4096
 	providerAnthropicMessages = "anthropic-messages"
+	// Anthropic verifies thinking signatures when tool results continue an assistant turn.
+	anthropicMessagesContentMetadataKey = "anthropic_messages_content"
 )
 
 const (
@@ -41,6 +43,13 @@ const (
 
 var cloneAnyMap = core.CloneAnyMap
 
+// AnthropicThinkingConfig configures Anthropic extended or adaptive thinking.
+type AnthropicThinkingConfig struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+	Display      string `json:"display,omitempty"`
+}
+
 // AnthropicMessagesConfig configures an Anthropic Messages API endpoint.
 type AnthropicMessagesConfig struct {
 	BaseURL          string
@@ -49,6 +58,7 @@ type AnthropicMessagesConfig struct {
 	HTTPClient       *http.Client
 	MaxTokens        int
 	AnthropicVersion string
+	Thinking         *AnthropicThinkingConfig
 }
 
 // AnthropicMessagesModel adapts the Anthropic Messages API to the SDK Model interface.
@@ -59,6 +69,7 @@ type AnthropicMessagesModel struct {
 	httpClient       *http.Client
 	maxTokens        int
 	anthropicVersion string
+	thinking         *AnthropicThinkingConfig
 }
 
 // NewAnthropicMessagesModel creates a Model from Anthropic Messages API configuration.
@@ -87,6 +98,7 @@ func NewAnthropicMessagesModel(config AnthropicMessagesConfig) (*AnthropicMessag
 		httpClient:       config.HTTPClient,
 		maxTokens:        maxTokens,
 		anthropicVersion: version,
+		thinking:         cloneAnthropicThinkingConfig(config.Thinking),
 	}, nil
 }
 
@@ -97,7 +109,7 @@ func (m *AnthropicMessagesModel) Generate(ctx context.Context, request ModelRequ
 		return ModelResponse{}, errors.New("agent: anthropic messages model is nil")
 	}
 	diagnostics := providerdiagnostics.New(providerAnthropicMessages, m.endpoint)
-	payload, err := newAnthropicMessagesRequest(m.model, m.maxTokens, request)
+	payload, err := newAnthropicMessagesRequest(m.model, m.maxTokens, m.thinking, request)
 	if err != nil {
 		return ModelResponse{}, err
 	}
@@ -139,12 +151,13 @@ func (m *AnthropicMessagesModel) Generate(ctx context.Context, request ModelRequ
 }
 
 type anthropicMessagesRequest struct {
-	Model     string             `json:"model"`
-	MaxTokens int                `json:"max_tokens"`
-	System    string             `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
-	Tools     []anthropicToolDef `json:"tools,omitempty"`
-	Stream    bool               `json:"stream,omitempty"`
+	Model     string                   `json:"model"`
+	MaxTokens int                      `json:"max_tokens"`
+	System    string                   `json:"system,omitempty"`
+	Messages  []anthropicMessage       `json:"messages"`
+	Tools     []anthropicToolDef       `json:"tools,omitempty"`
+	Thinking  *AnthropicThinkingConfig `json:"thinking,omitempty"`
+	Stream    bool                     `json:"stream,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -161,6 +174,9 @@ type anthropicToolDef struct {
 type anthropicContentBlock struct {
 	Type      string         `json:"type"`
 	Text      string         `json:"text,omitempty"`
+	Thinking  string         `json:"thinking,omitempty"`
+	Signature string         `json:"signature,omitempty"`
+	Data      string         `json:"data,omitempty"`
 	ID        string         `json:"id,omitempty"`
 	Name      string         `json:"name,omitempty"`
 	Input     map[string]any `json:"input,omitempty"`
@@ -169,8 +185,8 @@ type anthropicContentBlock struct {
 }
 
 type anthropicMessagesResponse struct {
-	Content []anthropicContentBlock `json:"content"`
-	Usage   anthropicMessagesUsage  `json:"usage"`
+	Content []json.RawMessage      `json:"content"`
+	Usage   anthropicMessagesUsage `json:"usage"`
 }
 
 type anthropicMessagesUsage struct {
@@ -179,7 +195,7 @@ type anthropicMessagesUsage struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
-func newAnthropicMessagesRequest(model string, maxTokens int, request ModelRequest) (anthropicMessagesRequest, error) {
+func newAnthropicMessagesRequest(model string, maxTokens int, thinking *AnthropicThinkingConfig, request ModelRequest) (anthropicMessagesRequest, error) {
 	messages, err := anthropicMessages(request.Messages)
 	if err != nil {
 		return anthropicMessagesRequest{}, err
@@ -190,7 +206,16 @@ func newAnthropicMessagesRequest(model string, maxTokens int, request ModelReque
 		System:    strings.TrimSpace(request.SystemPrompt),
 		Messages:  messages,
 		Tools:     anthropicTools(request.Tools),
+		Thinking:  cloneAnthropicThinkingConfig(thinking),
 	}, nil
+}
+
+func cloneAnthropicThinkingConfig(config *AnthropicThinkingConfig) *AnthropicThinkingConfig {
+	if config == nil {
+		return nil
+	}
+	cloned := *config
+	return &cloned
 }
 
 func anthropicMessages(messages []Message) ([]anthropicMessage, error) {
@@ -226,6 +251,13 @@ func anthropicMessages(messages []Message) ([]anthropicMessage, error) {
 }
 
 func anthropicAssistantContent(message Message) (any, error) {
+	rawBlocks, ok, err := anthropicMessagesRawContentBlocks(message.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return rawBlocks, nil
+	}
 	if len(message.ToolCalls) == 0 {
 		return message.Content, nil
 	}
@@ -240,6 +272,33 @@ func anthropicAssistantContent(message Message) (any, error) {
 			Name:  call.Name,
 			Input: cloneAnyMap(call.Arguments),
 		})
+	}
+	return blocks, nil
+}
+
+func anthropicMessagesRawContentBlocks(metadata map[string]any) ([]map[string]any, bool, error) {
+	if len(metadata) == 0 {
+		return nil, false, nil
+	}
+	value, ok := metadata[anthropicMessagesContentMetadataKey]
+	if !ok {
+		return nil, false, nil
+	}
+	blocks, err := normalizeAnthropicMessagesRawContentBlocks(value)
+	if err != nil {
+		return nil, true, err
+	}
+	return blocks, true, nil
+}
+
+func normalizeAnthropicMessagesRawContentBlocks(value any) ([]map[string]any, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("agent: encode anthropic messages content metadata: %w", err)
+	}
+	var blocks []map[string]any
+	if err := json.Unmarshal(data, &blocks); err != nil {
+		return nil, fmt.Errorf("agent: decode anthropic messages content metadata: %w", err)
 	}
 	return blocks, nil
 }
@@ -269,7 +328,18 @@ func anthropicTools(tools []ToolDescriptor) []anthropicToolDef {
 func (r anthropicMessagesResponse) modelResponse() (ModelResponse, error) {
 	var textParts []string
 	toolCalls := make([]ToolCall, 0)
-	for _, block := range r.Content {
+	rawContent := make([]map[string]any, 0, len(r.Content))
+	for _, raw := range r.Content {
+		var block anthropicContentBlock
+		if err := json.Unmarshal(raw, &block); err != nil {
+			return ModelResponse{}, fmt.Errorf("agent: decode anthropic messages content block: %w", err)
+		}
+		var rawBlock map[string]any
+		if err := json.Unmarshal(raw, &rawBlock); err != nil {
+			return ModelResponse{}, fmt.Errorf("agent: preserve anthropic messages content block: %w", err)
+		}
+		rawContent = append(rawContent, rawBlock)
+
 		switch block.Type {
 		case "text":
 			if block.Text != "" {
@@ -283,10 +353,17 @@ func (r anthropicMessagesResponse) modelResponse() (ModelResponse, error) {
 			})
 		}
 	}
+	metadata := map[string]any(nil)
+	if len(rawContent) > 0 {
+		metadata = map[string]any{
+			anthropicMessagesContentMetadataKey: rawContent,
+		}
+	}
 	message := Message{
 		Role:      RoleAssistant,
 		Content:   strings.Join(textParts, ""),
 		ToolCalls: core.CloneToolCalls(toolCalls),
+		Metadata:  metadata,
 	}
 	return ModelResponse{Message: message, ToolCalls: toolCalls, Usage: r.Usage.tokenUsage()}, nil
 }

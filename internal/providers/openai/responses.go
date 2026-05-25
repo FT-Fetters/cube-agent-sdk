@@ -161,6 +161,7 @@ type openAIResponsesResponse struct {
 }
 
 type openAIResponsesOutputItem struct {
+	ID        string                              `json:"id,omitempty"`
 	Type      string                              `json:"type"`
 	Role      string                              `json:"role,omitempty"`
 	Content   []openAIResponsesOutputContentBlock `json:"content,omitempty"`
