@@ -26,6 +26,7 @@ type ModelConfig struct {
 	HTTPClient       *http.Client
 	MaxTokens        int
 	AnthropicVersion string
+	Thinking         *AnthropicThinkingConfig
 	Store            *bool
 }
 
@@ -56,6 +57,7 @@ func NewModel(config ModelConfig) (Model, error) {
 			HTTPClient:       config.HTTPClient,
 			MaxTokens:        config.MaxTokens,
 			AnthropicVersion: config.AnthropicVersion,
+			Thinking:         config.Thinking,
 		})
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrModelAPIUnsupported, config.APIType)

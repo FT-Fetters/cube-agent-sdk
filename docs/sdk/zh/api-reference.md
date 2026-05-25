@@ -57,6 +57,7 @@
 - `OpenAIResponsesConfig`
 - `OpenAIResponsesModel`
 - `NewAnthropicMessagesModel`
+- `AnthropicThinkingConfig`
 - `AnthropicMessagesConfig`
 - `AnthropicMessagesModel`
 

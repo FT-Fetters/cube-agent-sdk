@@ -58,7 +58,7 @@ compare them with `ModelCapabilities.Supports`, or choose a fallback with
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ModelAPIOpenAICompatible` | Yes | Yes | No | No | No | Yes | No | No | Yes |
 | `ModelAPIOpenAIResponses` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
-| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
 
 `MCPServerMetadata` means the adapter consumes `ModelRequest.MCPServers`.
 `ModelHandledMCP` means the remote model or provider performs MCP access. The
@@ -132,16 +132,24 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 	Model:            os.Getenv("ANTHROPIC_MODEL"),
 	MaxTokens:        4096,
 	AnthropicVersion: "2023-06-01",
+	Thinking: &agent.AnthropicThinkingConfig{
+		Type:    "adaptive",
+		Display: "summarized",
+	},
 })
 ```
 
 `BaseURL` may be a provider root, a `/v1` URL, or a full `/v1/messages` URL.
 If `AnthropicVersion` is empty, the adapter uses `2023-06-01`. If `MaxTokens`
-is empty, the adapter uses its default maximum. It also implements `StreamModel`
-using Anthropic `content_block_delta`, `message_delta`, and `message_stop` SSE
-events. When Anthropic returns `usage.input_tokens` and `usage.output_tokens`,
-the adapter maps them to `ModelResponse.Usage` or final `StreamEvent.Usage` and
-derives the total when the provider does not report one.
+is empty, the adapter uses its default maximum. If `Thinking` is set, it is sent
+as Anthropic's top-level `thinking` object. The adapter preserves raw Anthropic
+content blocks on assistant message metadata, including `thinking`
+and `redacted_thinking`, so signed thinking context can be replayed during
+tool-use continuations. It also implements `StreamModel` using Anthropic
+`content_block_delta`, `message_delta`, and `message_stop` SSE events. When
+Anthropic returns `usage.input_tokens` and `usage.output_tokens`, the adapter
+maps them to `ModelResponse.Usage` or final `StreamEvent.Usage` and derives the
+total when the provider does not report one.
 
 ## Reliable Model Wrappers
 

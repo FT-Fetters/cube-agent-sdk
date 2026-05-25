@@ -90,11 +90,11 @@ func TestBuiltInProviderCapabilities(t *testing.T) {
 				Streaming:         true,
 				ParallelToolCalls: true,
 				TokenUsage:        true,
+				ReasoningMetadata: true,
 				MCPServerMetadata: false,
 				ModelHandledMCP:   false,
 				JSONMode:          false,
 				StructuredOutput:  false,
-				ReasoningMetadata: false,
 			},
 		},
 	}

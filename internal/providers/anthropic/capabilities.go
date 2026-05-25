@@ -10,6 +10,7 @@ func (m *AnthropicMessagesModel) Capabilities() core.ModelCapabilities {
 		Tools:             true,
 		Streaming:         true,
 		ParallelToolCalls: true,
+		ReasoningMetadata: true,
 		TokenUsage:        true,
 	}
 	if m != nil {

@@ -242,7 +242,7 @@ every remote model variant behind the same endpoint.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ModelAPIOpenAICompatible` | Yes | Yes | No | No | No | Yes | No | No | Yes |
 | `ModelAPIOpenAIResponses` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
-| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
 
 When a model declares capabilities, the agent rejects obvious incompatible
 configuration before provider calls. The error is compatible with
@@ -317,6 +317,10 @@ model, err := agent.NewModel(agent.ModelConfig{
 	BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
 	APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
 	Model:   os.Getenv("ANTHROPIC_MODEL"),
+	Thinking: &agent.AnthropicThinkingConfig{
+		Type:    "adaptive",
+		Display: "summarized",
+	},
 })
 if err != nil {
 	return err
@@ -326,10 +330,14 @@ if err != nil {
 The adapter maps the SDK system prompt to the top-level `system` field, maps
 tools to Anthropic `tools` with `input_schema`, maps SDK tool calls to
 `tool_use` content blocks, and maps SDK tool results to `tool_result` user
-content blocks. It also supports `RunStream` using Anthropic Messages SSE
-events. The default Anthropic API version is `2023-06-01`; set
-`AnthropicVersion` in `ModelConfig` or `AnthropicMessagesConfig` if your
-provider requires another version.
+content blocks. It preserves raw Anthropic content blocks on assistant message
+metadata, including `thinking` and `redacted_thinking`, so tool-use loops can
+replay signed thinking context back to the provider. It also supports
+`RunStream` using Anthropic Messages SSE events. The default Anthropic API
+version is `2023-06-01`; set `AnthropicVersion` in `ModelConfig` or
+`AnthropicMessagesConfig` if your provider requires another version. `Thinking`
+is optional; omit it when the target model or provider should run without
+extended/adaptive thinking.
 
 ## Tool Schema
 
@@ -426,7 +434,8 @@ The SDK commits the final assistant message only after a done event. Interrupted
 delta streams do not persist partial assistant text. Final done events carry
 provider token usage when the stream format reports it, and streaming
 observability copies that usage into `EventAfterModel`/`Observation.TokenUsage`.
-Streamed tool calls are reported with `ErrStreamingToolCallsUnsupported`.
+Built-in providers normalize supported streamed tool-call shapes into final done
+messages so `RunStream` can execute them and continue the tool loop.
 
 ## Reliable Model Wrappers
 

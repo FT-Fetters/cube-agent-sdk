@@ -57,6 +57,7 @@ method-level details while keeping this page as a navigation aid.
 - `OpenAIResponsesConfig`
 - `OpenAIResponsesModel`
 - `NewAnthropicMessagesModel`
+- `AnthropicThinkingConfig`
 - `AnthropicMessagesConfig`
 - `AnthropicMessagesModel`
 

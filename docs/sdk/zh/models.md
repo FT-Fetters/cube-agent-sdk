@@ -55,7 +55,7 @@ model, err := agent.NewModel(agent.ModelConfig{
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ModelAPIOpenAICompatible` | Yes | Yes | No | No | No | Yes | No | No | Yes |
 | `ModelAPIOpenAIResponses` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
-| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | No | Yes | No | No | Yes |
+| `ModelAPIAnthropicMessages` | Yes | Yes | No | No | Yes | Yes | No | No | Yes |
 
 `MCPServerMetadata` 表示适配器会消费 `ModelRequest.MCPServers`。
 `ModelHandledMCP` 表示远端模型或 provider 负责访问 MCP server。当前内置适配器会暴露
@@ -128,16 +128,23 @@ model, err := agent.NewAnthropicMessagesModel(agent.AnthropicMessagesConfig{
 	Model:            os.Getenv("ANTHROPIC_MODEL"),
 	MaxTokens:        4096,
 	AnthropicVersion: "2023-06-01",
+	Thinking: &agent.AnthropicThinkingConfig{
+		Type:    "adaptive",
+		Display: "summarized",
+	},
 })
 ```
 
 `BaseURL` 可以是 provider root、`/v1` URL，或完整的 `/v1/messages` URL。如果
 `AnthropicVersion` 为空，适配器使用 `2023-06-01`。如果 `MaxTokens` 为空，适配器
-使用自己的默认上限。它也通过 Anthropic `content_block_delta`、`message_delta`
-和 `message_stop` SSE events 实现了 `StreamModel`。当 Anthropic 返回
-`usage.input_tokens` 和 `usage.output_tokens` 时，适配器会映射到
-`ModelResponse.Usage` 或最终 `StreamEvent.Usage`；如果 provider 没有报告 total，
-则由 input 和 output 相加得到。
+使用自己的默认上限。如果设置 `Thinking`，它会作为 Anthropic 顶层 `thinking` object
+发送。适配器会在 assistant message metadata 中保留原始 Anthropic content blocks，包括
+`thinking` 和 `redacted_thinking`，以便 tool-use continuation
+能把带签名的 thinking context 回放给 provider。它也通过 Anthropic
+`content_block_delta`、`message_delta` 和 `message_stop` SSE events 实现了
+`StreamModel`。当 Anthropic 返回 `usage.input_tokens` 和 `usage.output_tokens` 时，
+适配器会映射到 `ModelResponse.Usage` 或最终 `StreamEvent.Usage`；如果 provider
+没有报告 total，则由 input 和 output 相加得到。
 
 ## 可靠性模型 Wrapper
 
