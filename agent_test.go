@@ -1505,6 +1505,301 @@ func TestAgentRunStreamEmitsDeltasDoneAndWritesFinalMessage(t *testing.T) {
 	}
 }
 
+func TestAgentRunStreamExecutesToolCallsAndContinuesStreaming(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEventBatches: [][]StreamEvent{
+		{
+			{Type: StreamEventDelta, Delta: "partial text"},
+			{
+				Type: StreamEventDone,
+				Message: Message{
+					Role:    RoleAssistant,
+					Content: "checking",
+					ToolCalls: []ToolCall{{
+						ID:        "call-1",
+						Name:      "echo",
+						Arguments: map[string]any{"text": "hello"},
+					}},
+				},
+			},
+		},
+		{
+			{Type: StreamEventDelta, Delta: "final "},
+			{Type: StreamEventDelta, Delta: "answer"},
+			{Type: StreamEventDone},
+		},
+	}}
+	var events []Event
+	agent, err := New(Config{ID: "stream-tool-agent", SystemPrompt: "base"}, model,
+		WithTools(ToolFunc{
+			ToolName:        "echo",
+			ToolDescription: "Echo text",
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				return ToolResult{CallID: call.ID, Name: call.Name, Content: call.Arguments["text"].(string)}, nil
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "use echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+
+	if len(got) != 4 {
+		t.Fatalf("stream events = %#v, want first-round delta, final deltas, and final done", got)
+	}
+	if got[0].Type != StreamEventDelta || got[0].Delta != "partial text" {
+		t.Fatalf("first event = %#v, want first-round partial delta", got[0])
+	}
+	if got[1].Type != StreamEventDelta || got[1].Delta != "final " {
+		t.Fatalf("second event = %#v, want final first delta", got[1])
+	}
+	if got[2].Type != StreamEventDelta || got[2].Delta != "answer" {
+		t.Fatalf("third event = %#v, want final second delta", got[2])
+	}
+	if got[3].Type != StreamEventDone || got[3].Message.Content != "final answer" {
+		t.Fatalf("done event = %#v, want final assistant answer", got[3])
+	}
+
+	if len(model.requests) != 2 {
+		t.Fatalf("stream requests = %d, want two model rounds", len(model.requests))
+	}
+	wantFirstRequest := []Message{{Role: RoleUser, Content: "use echo"}}
+	if got := model.requests[0].Messages; !reflect.DeepEqual(got, wantFirstRequest) {
+		t.Fatalf("first request messages = %#v, want user input", got)
+	}
+	wantSecondRequest := []Message{
+		{Role: RoleUser, Content: "use echo"},
+		{
+			Role:    RoleAssistant,
+			Content: "checking",
+			ToolCalls: []ToolCall{{
+				ID:        "call-1",
+				Name:      "echo",
+				Arguments: map[string]any{"text": "hello"},
+			}},
+		},
+		{Role: RoleTool, Name: "echo", ToolCallID: "call-1", Content: "hello"},
+	}
+	if got := model.requests[1].Messages; !reflect.DeepEqual(got, wantSecondRequest) {
+		t.Fatalf("second request messages = %#v, want tool-call turn and result", got)
+	}
+	wantMessages := append(wantSecondRequest, Message{Role: RoleAssistant, Content: "final answer"})
+	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
+		t.Fatalf("agent messages = %#v, want tool-call context plus final assistant", got)
+	}
+
+	firstModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 1)
+	beforeTool := firstEventOfTypeAndRound(t, events, EventBeforeTool, 1)
+	secondModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 2)
+	if firstModel.ParentRequestID != "" {
+		t.Fatalf("first model parent request ID = %q, want empty root", firstModel.ParentRequestID)
+	}
+	if beforeTool.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("tool parent request ID = %q, want first model request ID %q", beforeTool.ParentRequestID, firstModel.RequestID)
+	}
+	if secondModel.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("second model parent request ID = %q, want first model request ID %q", secondModel.ParentRequestID, firstModel.RequestID)
+	}
+}
+
+func TestAgentRunStreamToolApprovalDeniedEmitsError(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEventBatches: [][]StreamEvent{
+		{
+			{
+				Type: StreamEventDone,
+				Message: Message{
+					Role:    RoleAssistant,
+					Content: "needs approval",
+					ToolCalls: []ToolCall{{
+						ID:        "call-1",
+						Name:      "danger",
+						Arguments: map[string]any{"path": "/"},
+					}},
+				},
+			},
+		},
+	}}
+	var events []Event
+	agent, err := New(Config{ID: "stream-approval-agent"}, model,
+		WithTools(ToolFunc{
+			ToolName:        "danger",
+			ToolDescription: "Dangerous operation",
+			Fn: func(context.Context, ToolCall) (ToolResult, error) {
+				t.Fatal("tool should not execute when approval is denied")
+				return ToolResult{}, nil
+			},
+		}),
+		WithApprovalPolicy(ApprovalFunc(func(context.Context, ApprovalRequest) (ApprovalDecision, error) {
+			return ApprovalDecision{Approved: false, Reason: "blocked"}, nil
+		})),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "run danger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+
+	if len(got) != 1 || got[0].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want one approval error", got)
+	}
+	if !errors.Is(got[0].Error, ErrApprovalDenied) {
+		t.Fatalf("stream error = %v, want ErrApprovalDenied", got[0].Error)
+	}
+	var agentErr *AgentError
+	if !errors.As(got[0].Error, &agentErr) {
+		t.Fatalf("stream error = %T, want *AgentError", got[0].Error)
+	}
+	if agentErr.Category != ErrorCategoryApproval || agentErr.Operation != "tool.approval" || agentErr.ToolName != "danger" {
+		t.Fatalf("approval error context = %#v, want approval/tool.approval for danger", agentErr)
+	}
+	beforeModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 1)
+	beforeApproval := firstEventOfTypeAndRound(t, events, EventBeforeApproval, 1)
+	if beforeApproval.ParentRequestID != beforeModel.RequestID {
+		t.Fatalf("approval parent request ID = %q, want model request ID %q", beforeApproval.ParentRequestID, beforeModel.RequestID)
+	}
+	if agentErr.ParentRequestID != beforeModel.RequestID {
+		t.Fatalf("approval error parent request ID = %q, want model request ID %q", agentErr.ParentRequestID, beforeModel.RequestID)
+	}
+
+	wantMessages := []Message{
+		{Role: RoleUser, Content: "run danger"},
+		{
+			Role:    RoleAssistant,
+			Content: "needs approval",
+			ToolCalls: []ToolCall{{
+				ID:        "call-1",
+				Name:      "danger",
+				Arguments: map[string]any{"path": "/"},
+			}},
+		},
+	}
+	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
+		t.Fatalf("agent messages = %#v, want assistant tool-call turn without result", got)
+	}
+}
+
+func TestAgentRunStreamMaxToolRoundsExceededEmitsError(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEventBatches: [][]StreamEvent{
+		{
+			{
+				Type: StreamEventDone,
+				Message: Message{
+					Role: RoleAssistant,
+					ToolCalls: []ToolCall{{
+						ID:        "call-1",
+						Name:      "echo",
+						Arguments: map[string]any{"text": "first"},
+					}},
+				},
+			},
+		},
+		{
+			{
+				Type: StreamEventDone,
+				Message: Message{
+					Role: RoleAssistant,
+					ToolCalls: []ToolCall{{
+						ID:        "call-2",
+						Name:      "echo",
+						Arguments: map[string]any{"text": "second"},
+					}},
+				},
+			},
+		},
+	}}
+	var events []Event
+	var toolCalls int
+	agent, err := New(Config{ID: "stream-round-agent", MaxToolRounds: 1}, model,
+		WithTools(ToolFunc{
+			ToolName:        "echo",
+			ToolDescription: "Echo text",
+			Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+				toolCalls++
+				return ToolResult{CallID: call.ID, Name: call.Name, Content: call.Arguments["text"].(string)}, nil
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "loop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+
+	if len(got) != 1 || got[0].Type != StreamEventError {
+		t.Fatalf("stream events = %#v, want one max-round error", got)
+	}
+	if !errors.Is(got[0].Error, ErrMaxToolRoundsExceeded) {
+		t.Fatalf("stream error = %v, want ErrMaxToolRoundsExceeded", got[0].Error)
+	}
+	var agentErr *AgentError
+	if !errors.As(got[0].Error, &agentErr) {
+		t.Fatalf("stream error = %T, want *AgentError", got[0].Error)
+	}
+	if agentErr.Category != ErrorCategoryTool || agentErr.Operation != "tool.rounds" || agentErr.Round != 2 {
+		t.Fatalf("max-round error context = %#v, want tool/tool.rounds in round 2", agentErr)
+	}
+	if toolCalls != 1 {
+		t.Fatalf("tool calls = %d, want only first tool call executed", toolCalls)
+	}
+
+	firstModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 1)
+	secondModel := firstEventOfTypeAndRound(t, events, EventBeforeModel, 2)
+	if secondModel.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("second model parent request ID = %q, want first model request ID %q", secondModel.ParentRequestID, firstModel.RequestID)
+	}
+	if agentErr.RequestID != secondModel.RequestID || agentErr.ParentRequestID != firstModel.RequestID {
+		t.Fatalf("max-round request context = %#v, want second model request and first model parent", agentErr)
+	}
+	for _, event := range events {
+		if event.Type == EventBeforeTool && event.Round == 2 {
+			t.Fatalf("events = %#v, want no second-round tool execution", events)
+		}
+	}
+
+	wantMessages := []Message{
+		{Role: RoleUser, Content: "loop"},
+		{
+			Role: RoleAssistant,
+			ToolCalls: []ToolCall{{
+				ID:        "call-1",
+				Name:      "echo",
+				Arguments: map[string]any{"text": "first"},
+			}},
+		},
+		{Role: RoleTool, Name: "echo", ToolCallID: "call-1", Content: "first"},
+	}
+	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
+		t.Fatalf("agent messages = %#v, want only first tool round committed", got)
+	}
+}
+
 func TestAgentRunStreamReturnsClearErrorWhenModelDoesNotSupportStreaming(t *testing.T) {
 	ctx := context.Background()
 	agent, err := New(Config{SystemPrompt: "base"}, &recordingModel{})
@@ -2004,16 +2299,10 @@ func TestAgentRunStreamPropagatesTraceContextToObservationsAndStreamErrors(t *te
 	}
 }
 
-func TestAgentRunStreamRejectsStreamedToolCalls(t *testing.T) {
+func TestAgentRunStreamPreservesProviderStreamingToolCallUnsupportedErrors(t *testing.T) {
 	ctx := context.Background()
 	model := &streamingRecordingModel{streamEvents: []StreamEvent{
-		{
-			Type: StreamEventDone,
-			Message: Message{
-				Role:      RoleAssistant,
-				ToolCalls: []ToolCall{{ID: "call-1", Name: "echo"}},
-			},
-		},
+		{Type: StreamEventError, Error: ErrStreamingToolCallsUnsupported},
 	}}
 	agent, err := New(Config{ID: "stream-agent"}, model)
 	if err != nil {
@@ -2030,21 +2319,21 @@ func TestAgentRunStreamRejectsStreamedToolCalls(t *testing.T) {
 		t.Fatalf("stream events = %#v, want one error event", got)
 	}
 	if got[0].Type != StreamEventError || got[0].AgentID != "stream-agent" || !errors.Is(got[0].Error, ErrStreamingToolCallsUnsupported) {
-		t.Fatalf("streamed tool-call event = %#v, want ErrStreamingToolCallsUnsupported", got[0])
+		t.Fatalf("provider unsupported event = %#v, want ErrStreamingToolCallsUnsupported compatibility", got[0])
 	}
 	var agentErr *AgentError
 	if !errors.As(got[0].Error, &agentErr) {
-		t.Fatalf("streamed tool-call error = %T, want *AgentError", got[0].Error)
+		t.Fatalf("provider unsupported error = %T, want *AgentError", got[0].Error)
 	}
-	if agentErr.Category != ErrorCategoryStreaming || agentErr.Operation != "stream.tool_calls" {
-		t.Fatalf("stream error category/operation = %q/%q, want streaming/stream.tool_calls", agentErr.Category, agentErr.Operation)
+	if agentErr.Category != ErrorCategoryModel || agentErr.Operation != "model.stream" {
+		t.Fatalf("stream error category/operation = %q/%q, want model/model.stream", agentErr.Category, agentErr.Operation)
 	}
 	if agentErr.RequestID == "" || agentErr.Round != 1 {
 		t.Fatalf("stream error context = %#v, want request ID and round", agentErr)
 	}
 	wantMessages := []Message{{Role: RoleUser, Content: "use echo"}}
 	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
-		t.Fatalf("agent messages = %#v, want no assistant message for streamed tool call", got)
+		t.Fatalf("agent messages = %#v, want no assistant message for provider unsupported stream", got)
 	}
 }
 
@@ -2756,9 +3045,10 @@ func (m failingModel) Generate(ctx context.Context, request ModelRequest) (Model
 }
 
 type streamingRecordingModel struct {
-	requests     []ModelRequest
-	streamEvents []StreamEvent
-	streamErr    error
+	requests           []ModelRequest
+	streamEvents       []StreamEvent
+	streamEventBatches [][]StreamEvent
+	streamErr          error
 }
 
 func (m *streamingRecordingModel) Generate(ctx context.Context, request ModelRequest) (ModelResponse, error) {
@@ -2770,10 +3060,15 @@ func (m *streamingRecordingModel) Stream(ctx context.Context, request ModelReque
 	if m.streamErr != nil {
 		return nil, m.streamErr
 	}
+	streamEvents := m.streamEvents
+	if len(m.streamEventBatches) > 0 {
+		streamEvents = m.streamEventBatches[0]
+		m.streamEventBatches = m.streamEventBatches[1:]
+	}
 	events := make(chan StreamEvent)
 	go func() {
 		defer close(events)
-		for _, event := range m.streamEvents {
+		for _, event := range streamEvents {
 			select {
 			case <-ctx.Done():
 				events <- StreamEvent{Type: StreamEventError, Error: ctx.Err()}

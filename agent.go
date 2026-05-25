@@ -566,143 +566,197 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		return nil, err
 	}
 
+	firstRound, _, err := a.startStreamRound(ctx, streamModel, activeSkills, 1, "", config.observeStreamLifecycle)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan StreamEvent)
+	go a.forwardStreamEvents(ctx, streamModel, activeSkills, firstRound, out, config.observeStreamLifecycle)
+	return out, nil
+}
+
+type activeStreamRound struct {
+	events          <-chan StreamEvent
+	agentID         string
+	requestID       string
+	parentRequestID string
+	round           int
+	estimatedTokens int
+	started         time.Time
+}
+
+type streamRoundOutcome struct {
+	message   Message
+	toolCalls []ToolCall
+	telemetry streamTelemetryTracker
+}
+
+func (a *Agent) startStreamRound(ctx context.Context, streamModel StreamModel, activeSkills []Skill, round int, parentRequestID string, observeStreamLifecycle bool) (activeStreamRound, bool, error) {
 	request := a.buildModelRequest(activeSkills)
 	requestID := a.nextRequestID(ctx, RequestIDContext{
-		EventType: EventBeforeModel,
-		Operation: requestOperationModelStream,
-		Round:     1,
+		EventType:       EventBeforeModel,
+		Operation:       requestOperationModelStream,
+		Round:           round,
+		ParentRequestID: parentRequestID,
 	})
 	estimatedTokens := a.estimatedTokens(request.Messages)
+	state := activeStreamRound{
+		agentID:         request.AgentID,
+		requestID:       requestID,
+		parentRequestID: parentRequestID,
+		round:           round,
+		estimatedTokens: estimatedTokens,
+		started:         time.Now(),
+	}
 	if err := a.emit(ctx, Event{
 		Type:            EventBeforeModel,
 		RequestID:       requestID,
-		Round:           1,
+		ParentRequestID: parentRequestID,
+		Round:           round,
 		EstimatedTokens: estimatedTokens,
 	}); err != nil {
-		return nil, err
+		return state, false, err
 	}
-	a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
+	a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
 		Type:            EventStreamStart,
 		RequestID:       requestID,
-		Round:           1,
+		ParentRequestID: parentRequestID,
+		Round:           round,
 		EstimatedTokens: estimatedTokens,
 	})
 	modelEvents, err := streamModel.Stream(ctx, request)
 	if err != nil {
-		wrapped := agentError(ErrorCategoryModel, "model.stream", err)
-		wrapped.AgentID = request.AgentID
-		wrapped.RequestID = requestID
-		wrapped.Round = 1
-		afterEvent := Event{
-			Type:            EventAfterModel,
-			RequestID:       requestID,
-			Round:           1,
-			Duration:        eventDurationSince(started),
-			EstimatedTokens: estimatedTokens,
-			Error:           wrapped,
-		}
-		if emitErr := a.emitStreamAfterModel(ctx, afterEvent); emitErr != nil {
-			a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
-				Type:            EventStreamError,
-				RequestID:       requestID,
-				Round:           1,
-				Duration:        afterEvent.Duration,
-				EstimatedTokens: estimatedTokens,
-				Error:           emitErr,
-			})
-			return nil, emitErr
-		}
-		a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
-			Type:            EventStreamError,
-			RequestID:       requestID,
-			Round:           1,
-			Duration:        afterEvent.Duration,
-			EstimatedTokens: estimatedTokens,
-			Error:           wrapped,
-		})
-		return nil, wrapped
+		return state, true, a.handleStreamStartError(ctx, state, err, observeStreamLifecycle)
 	}
 	if modelEvents == nil {
 		err := errors.New("agent: stream model returned nil event channel")
-		wrapped := agentError(ErrorCategoryModel, "model.stream", err)
-		wrapped.AgentID = request.AgentID
-		wrapped.RequestID = requestID
-		wrapped.Round = 1
-		afterEvent := Event{
-			Type:            EventAfterModel,
-			RequestID:       requestID,
-			Round:           1,
-			Duration:        eventDurationSince(started),
-			EstimatedTokens: estimatedTokens,
-			Error:           wrapped,
-		}
-		if emitErr := a.emitStreamAfterModel(ctx, afterEvent); emitErr != nil {
-			a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
-				Type:            EventStreamError,
-				RequestID:       requestID,
-				Round:           1,
-				Duration:        afterEvent.Duration,
-				EstimatedTokens: estimatedTokens,
-				Error:           emitErr,
-			})
-			return nil, emitErr
-		}
-		a.observeStreamLifecycle(ctx, config.observeStreamLifecycle, Event{
-			Type:            EventStreamError,
-			RequestID:       requestID,
-			Round:           1,
-			Duration:        afterEvent.Duration,
-			EstimatedTokens: estimatedTokens,
-			Error:           wrapped,
-		})
-		return nil, wrapped
+		return state, true, a.handleStreamStartError(ctx, state, err, observeStreamLifecycle)
 	}
-
-	out := make(chan StreamEvent)
-	go a.forwardStreamEvents(ctx, modelEvents, out, requestID, 1, estimatedTokens, started, config.observeStreamLifecycle)
-	return out, nil
+	state.events = modelEvents
+	return state, false, nil
 }
 
-func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan StreamEvent, out chan<- StreamEvent, requestID string, round int, estimatedTokens int, started time.Time, observeStreamLifecycle bool) {
+func (a *Agent) handleStreamStartError(ctx context.Context, state activeStreamRound, err error, observeStreamLifecycle bool) error {
+	wrapped := agentError(ErrorCategoryModel, "model.stream", err)
+	wrapped.AgentID = state.agentID
+	wrapped.RequestID = state.requestID
+	wrapped.ParentRequestID = state.parentRequestID
+	wrapped.Round = state.round
+	afterEvent := Event{
+		Type:            EventAfterModel,
+		RequestID:       state.requestID,
+		ParentRequestID: state.parentRequestID,
+		Round:           state.round,
+		Duration:        eventDurationSince(state.started),
+		EstimatedTokens: state.estimatedTokens,
+		Error:           wrapped,
+	}
+	if emitErr := a.emitStreamAfterModel(ctx, afterEvent); emitErr != nil {
+		a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+			Type:            EventStreamError,
+			RequestID:       state.requestID,
+			ParentRequestID: state.parentRequestID,
+			Round:           state.round,
+			Duration:        afterEvent.Duration,
+			EstimatedTokens: state.estimatedTokens,
+			Error:           emitErr,
+		})
+		return emitErr
+	}
+	a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+		Type:            EventStreamError,
+		RequestID:       state.requestID,
+		ParentRequestID: state.parentRequestID,
+		Round:           state.round,
+		Duration:        afterEvent.Duration,
+		EstimatedTokens: state.estimatedTokens,
+		Error:           wrapped,
+	})
+	return wrapped
+}
+
+func (a *Agent) forwardStreamEvents(ctx context.Context, streamModel StreamModel, activeSkills []Skill, firstRound activeStreamRound, out chan<- StreamEvent, observeStreamLifecycle bool) {
 	defer close(out)
 
-	a.mu.Lock()
-	agentID := a.id
-	a.mu.Unlock()
+	agentID := a.agentID()
+	maxRounds := a.maxToolRounds()
+	round := firstRound
+	for {
+		outcome, ok := a.forwardStreamRound(ctx, round, out, observeStreamLifecycle)
+		if !ok || len(outcome.toolCalls) == 0 {
+			return
+		}
+		if round.round > maxRounds {
+			err := a.streamMaxToolRoundsError(ctx, agentID, round)
+			a.sendStreamRuntimeError(ctx, out, agentID, err, round, outcome.telemetry, observeStreamLifecycle)
+			return
+		}
 
+		// A tool-call done event is a control point, not the user's final streamed answer.
+		a.appendMessage(outcome.message)
+		for _, call := range outcome.toolCalls {
+			result, err := a.executeTool(ctx, call, round.round, round.requestID)
+			if err != nil {
+				a.sendStreamRuntimeError(ctx, out, agentID, err, round, outcome.telemetry, observeStreamLifecycle)
+				return
+			}
+			a.appendMessage(Message{
+				Role:       RoleTool,
+				Name:       result.Name,
+				ToolCallID: result.CallID,
+				Content:    result.Content,
+				Metadata:   result.Metadata,
+			})
+		}
+		if err := a.maybeCompact(ctx, round.round, round.requestID); err != nil {
+			a.sendStreamRuntimeError(ctx, out, agentID, err, round, outcome.telemetry, observeStreamLifecycle)
+			return
+		}
+
+		nextRound, errorObserved, err := a.startStreamRound(ctx, streamModel, activeSkills, round.round+1, round.requestID, observeStreamLifecycle)
+		if err != nil {
+			if errorObserved {
+				_ = sendStreamErrorEvent(ctx, out, agentID, err)
+				return
+			}
+			a.sendStreamRuntimeError(ctx, out, agentID, err, nextRound, streamTelemetryTracker{started: nextRound.started}, observeStreamLifecycle)
+			return
+		}
+		round = nextRound
+	}
+}
+
+func (a *Agent) forwardStreamRound(ctx context.Context, state activeStreamRound, out chan<- StreamEvent, observeStreamLifecycle bool) (streamRoundOutcome, bool) {
 	var content strings.Builder
-	telemetry := streamTelemetryTracker{started: started}
-	done := false
-	for event := range modelEvents {
-		event.AgentID = agentID
+	telemetry := streamTelemetryTracker{started: state.started}
+	for event := range state.events {
+		event.AgentID = state.agentID
 
 		switch event.Type {
 		case StreamEventDelta:
 			if len(event.Message.ToolCalls) > 0 {
-				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
-				return
+				a.sendStreamError(ctx, out, state.agentID, ErrStreamingToolCallsUnsupported, state.requestID, state.parentRequestID, state.round, state.estimatedTokens, state.started, telemetry, observeStreamLifecycle)
+				return streamRoundOutcome{}, false
 			}
 			telemetry.recordDelta(event.Delta)
 			if telemetry.deltaCount == 1 {
-				duration := eventDurationSince(started)
+				duration := eventDurationSince(state.started)
 				a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
 					Type:            EventStreamFirstDelta,
-					RequestID:       requestID,
-					Round:           round,
+					RequestID:       state.requestID,
+					ParentRequestID: state.parentRequestID,
+					Round:           state.round,
 					Duration:        duration,
-					EstimatedTokens: estimatedTokens,
+					EstimatedTokens: state.estimatedTokens,
 					StreamTelemetry: telemetry.telemetry(duration),
 				})
 			}
 			content.WriteString(event.Delta)
 			if !sendStreamEvent(ctx, out, event) {
-				return
+				return streamRoundOutcome{}, false
 			}
 		case StreamEventDone:
-			if len(event.Message.ToolCalls) > 0 {
-				a.sendStreamError(ctx, out, agentID, ErrStreamingToolCallsUnsupported, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
-				return
-			}
 			message := event.Message
 			if message.Role == "" {
 				message.Role = RoleAssistant
@@ -710,53 +764,61 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			if message.Content == "" {
 				message.Content = content.String()
 			}
+			message.ToolCalls = cloneToolCalls(message.ToolCalls)
 			event.Message = cloneMessage(message)
 
-			duration := eventDurationSince(started)
+			duration := eventDurationSince(state.started)
 			if err := a.emitStreamAfterModel(ctx, Event{
 				Type:            EventAfterModel,
-				RequestID:       requestID,
-				Round:           round,
+				RequestID:       state.requestID,
+				ParentRequestID: state.parentRequestID,
+				Round:           state.round,
 				Duration:        duration,
-				EstimatedTokens: estimatedTokens,
+				EstimatedTokens: state.estimatedTokens,
 				TokenUsage:      event.Usage,
 				StreamTelemetry: telemetry.telemetry(duration),
 				Message:         message,
 			}); err != nil {
-				a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
-				return
+				a.sendStreamError(ctx, out, state.agentID, err, state.requestID, state.parentRequestID, state.round, state.estimatedTokens, state.started, telemetry, observeStreamLifecycle)
+				return streamRoundOutcome{}, false
 			}
 			a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
 				Type:            EventStreamDone,
-				RequestID:       requestID,
-				Round:           round,
+				RequestID:       state.requestID,
+				ParentRequestID: state.parentRequestID,
+				Round:           state.round,
 				Duration:        duration,
-				EstimatedTokens: estimatedTokens,
+				EstimatedTokens: state.estimatedTokens,
 				TokenUsage:      event.Usage,
 				StreamTelemetry: telemetry.telemetry(duration),
 			})
-			// Commit only after done so interrupted delta streams do not persist partial assistant text.
-			a.appendMessage(message)
-			done = true
-			if !sendStreamEvent(ctx, out, event) {
-				return
+			if len(message.ToolCalls) > 0 {
+				return streamRoundOutcome{message: message, toolCalls: cloneToolCalls(message.ToolCalls), telemetry: telemetry}, true
 			}
+			// Commit only after final done so interrupted delta streams do not persist partial assistant text.
+			a.appendMessage(message)
+			if !sendStreamEvent(ctx, out, event) {
+				return streamRoundOutcome{}, false
+			}
+			return streamRoundOutcome{message: message, telemetry: telemetry}, true
 		case StreamEventError:
 			if event.Error == nil {
 				event.Error = errors.New("agent: stream error")
 			}
 			wrapped := agentError(ErrorCategoryModel, "model.stream", event.Error)
-			wrapped.AgentID = agentID
-			wrapped.RequestID = requestID
-			wrapped.Round = round
+			wrapped.AgentID = state.agentID
+			wrapped.RequestID = state.requestID
+			wrapped.ParentRequestID = state.parentRequestID
+			wrapped.Round = state.round
 			event.Error = wrapped
-			duration := eventDurationSince(started)
+			duration := eventDurationSince(state.started)
 			if emitErr := a.emitStreamAfterModel(ctx, Event{
 				Type:            EventAfterModel,
-				RequestID:       requestID,
-				Round:           round,
+				RequestID:       state.requestID,
+				ParentRequestID: state.parentRequestID,
+				Round:           state.round,
 				Duration:        duration,
-				EstimatedTokens: estimatedTokens,
+				EstimatedTokens: state.estimatedTokens,
 				StreamTelemetry: telemetry.telemetry(duration),
 				Error:           wrapped,
 			}); emitErr != nil {
@@ -764,28 +826,81 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, modelEvents <-chan Stre
 			}
 			a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
 				Type:            EventStreamError,
-				RequestID:       requestID,
-				Round:           round,
+				RequestID:       state.requestID,
+				ParentRequestID: state.parentRequestID,
+				Round:           state.round,
 				Duration:        duration,
-				EstimatedTokens: estimatedTokens,
+				EstimatedTokens: state.estimatedTokens,
 				StreamTelemetry: telemetry.telemetry(duration),
 				Error:           event.Error,
 			})
 			_ = sendStreamEvent(ctx, out, event)
-			return
+			return streamRoundOutcome{}, false
 		default:
 			err := fmt.Errorf("agent: unknown stream event type %q", event.Type)
-			a.sendStreamError(ctx, out, agentID, err, requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
-			return
+			a.sendStreamError(ctx, out, state.agentID, err, state.requestID, state.parentRequestID, state.round, state.estimatedTokens, state.started, telemetry, observeStreamLifecycle)
+			return streamRoundOutcome{}, false
 		}
 	}
 
-	if !done {
-		a.sendStreamError(ctx, out, agentID, errors.New("agent: stream ended without done event"), requestID, round, estimatedTokens, started, telemetry, observeStreamLifecycle)
-	}
+	a.sendStreamError(ctx, out, state.agentID, errors.New("agent: stream ended without done event"), state.requestID, state.parentRequestID, state.round, state.estimatedTokens, state.started, telemetry, observeStreamLifecycle)
+	return streamRoundOutcome{}, false
 }
 
-func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, requestID string, round int, estimatedTokens int, started time.Time, telemetry streamTelemetryTracker, observeStreamLifecycle bool) {
+func (a *Agent) streamMaxToolRoundsError(ctx context.Context, agentID string, state activeStreamRound) error {
+	wrapped := agentError(ErrorCategoryTool, "tool.rounds", ErrMaxToolRoundsExceeded)
+	wrapped.AgentID = agentID
+	wrapped.RunID = runIDFromContext(ctx)
+	setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
+	wrapped.RequestID = state.requestID
+	wrapped.ParentRequestID = state.parentRequestID
+	wrapped.Round = state.round
+	return wrapped
+}
+
+func (a *Agent) sendStreamRuntimeError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, state activeStreamRound, telemetry streamTelemetryTracker, observeStreamLifecycle bool) {
+	err = streamAgentError(err)
+	runID := runIDFromContext(ctx)
+	requestID := state.requestID
+	parentRequestID := state.parentRequestID
+	round := state.round
+	var agentErr *AgentError
+	if errors.As(err, &agentErr) {
+		if agentErr.AgentID == "" {
+			agentErr.AgentID = agentID
+		}
+		if agentErr.RunID == "" {
+			agentErr.RunID = runID
+		}
+		setAgentErrorTraceContext(agentErr, traceContextFromContext(ctx))
+		if agentErr.RequestID == "" {
+			agentErr.RequestID = requestID
+		}
+		if agentErr.ParentRequestID == "" {
+			agentErr.ParentRequestID = parentRequestID
+		}
+		if agentErr.Round == 0 {
+			agentErr.Round = round
+		}
+		requestID = agentErr.RequestID
+		parentRequestID = agentErr.ParentRequestID
+		round = agentErr.Round
+	}
+	duration := eventDurationSince(state.started)
+	a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
+		Type:            EventStreamError,
+		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
+		Round:           round,
+		Duration:        duration,
+		EstimatedTokens: state.estimatedTokens,
+		StreamTelemetry: telemetry.telemetry(duration),
+		Error:           err,
+	})
+	_ = sendStreamErrorEvent(ctx, out, agentID, err)
+}
+
+func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, agentID string, err error, requestID string, parentRequestID string, round int, estimatedTokens int, started time.Time, telemetry streamTelemetryTracker, observeStreamLifecycle bool) {
 	err = streamAgentError(err)
 	runID := runIDFromContext(ctx)
 	var agentErr *AgentError
@@ -800,6 +915,9 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		if agentErr.RequestID == "" {
 			agentErr.RequestID = requestID
 		}
+		if agentErr.ParentRequestID == "" {
+			agentErr.ParentRequestID = parentRequestID
+		}
 		if agentErr.Round == 0 {
 			agentErr.Round = round
 		}
@@ -809,23 +927,21 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 		a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
 			Type:            EventStreamError,
 			RequestID:       requestID,
+			ParentRequestID: parentRequestID,
 			Round:           round,
 			Duration:        duration,
 			EstimatedTokens: estimatedTokens,
 			StreamTelemetry: telemetry.telemetry(duration),
 			Error:           err,
 		})
-		_ = sendStreamEvent(ctx, out, StreamEvent{
-			Type:    StreamEventError,
-			AgentID: agentID,
-			Error:   err,
-		})
+		_ = sendStreamErrorEvent(ctx, out, agentID, err)
 		return
 	}
 	duration := eventDurationSince(started)
 	afterEvent := Event{
 		Type:            EventAfterModel,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		Duration:        duration,
 		EstimatedTokens: estimatedTokens,
@@ -838,13 +954,18 @@ func (a *Agent) sendStreamError(ctx context.Context, out chan<- StreamEvent, age
 	a.observeStreamLifecycle(ctx, observeStreamLifecycle, Event{
 		Type:            EventStreamError,
 		RequestID:       requestID,
+		ParentRequestID: parentRequestID,
 		Round:           round,
 		Duration:        duration,
 		EstimatedTokens: estimatedTokens,
 		StreamTelemetry: telemetry.telemetry(duration),
 		Error:           err,
 	})
-	_ = sendStreamEvent(ctx, out, StreamEvent{
+	_ = sendStreamErrorEvent(ctx, out, agentID, err)
+}
+
+func sendStreamErrorEvent(ctx context.Context, out chan<- StreamEvent, agentID string, err error) bool {
+	return sendStreamEvent(ctx, out, StreamEvent{
 		Type:    StreamEventError,
 		AgentID: agentID,
 		Error:   err,
