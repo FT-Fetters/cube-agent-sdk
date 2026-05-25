@@ -1,0 +1,78 @@
+agent_test.go
+  ed93a8f2cdc41fdd 1965-2037
+docs/sdk/en/streaming.md
+  ed93a8f2cdc41fdd 21-24,27-28,43-45,54-59,65,69-77
+internal/providers/openai/stream.go
+  ed93a8f2cdc41fdd 162-163,172,177-179,189-190,206,208-210,238-241,250-251,257-260,262,268-269,280-309,332-340,363-364,390,394,396-397,427-428,431,455-456,467,469,482,493,497-498,505-506,520-527,550-563,566-585,606-619
+aliases.go
+  ed93a8f2cdc41fdd 30-34,37-38
+agent.go
+  ed93a8f2cdc41fdd 847-852,1016-1017
+internal/providers/anthropic/stream.go
+  ed93a8f2cdc41fdd 93,105-106,130-132,148-150,154-156,162-164,174-175,310-320,391-399,413-419
+eval.go
+  ed93a8f2cdc41fdd 525-531,992-998,1004-1017
+docs/sdk/zh/streaming.md
+  ed93a8f2cdc41fdd 21-24,27-28,42-44,52-55,61,65-71
+openai_responses_test.go
+  ed93a8f2cdc41fdd 326-327,329-333
+internal/core/types.go
+  ed93a8f2cdc41fdd 65-69,72-88,90-92,94-98,101-103
+RUNSTREAM_COMPLETENESS_CHECKLIST.md
+  ed93a8f2cdc41fdd 40
+anthropic_messages_test.go
+  ed93a8f2cdc41fdd 385,461,480-481,483-489,491
+openai_compatible_test.go
+  ed93a8f2cdc41fdd 311-312,317-322,571-577
+internal/providers/openai/responses.go
+  ed93a8f2cdc41fdd 160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "942bb4ab21f9f7e277dfb5630486ec5867dbdf02",
+  "prompts": {
+    "7356d394ecf58fc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e4e91-2667-7072-a01d-9004a91b2c6e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1185,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/19118d5b7f8832ef933d85d155e51daae432316103a39bf2da1aeb250a5e3244"
+    },
+    "8b1bd6b083081424": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d09-abc1-7670-a40e-ef5312d1b822",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 46,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/8476c94c96604aeee5baed48553f2d8b63059da66cd1367952b02dfc0adc84a5"
+    },
+    "ed93a8f2cdc41fdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e2c-f5a1-7913-afb5-c48d636a8808",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lynn",
+      "messages": [],
+      "total_additions": 473,
+      "total_deletions": 99,
+      "accepted_lines": 522,
+      "overriden_lines": 0,
+      "messages_url": "https://git-ai-api.hsjdata.com/cas/12045b7961c83aaa69a23f5638f9506d8c774a70b6b00ebf3e8a4da5455c6639"
+    }
+  }
+}
