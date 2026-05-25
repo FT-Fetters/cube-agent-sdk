@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1242,6 +1243,355 @@ func TestAgentAutomaticallyCarriesConversationContextBetweenRuns(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("second request context = %#v, want %#v", got, want)
+	}
+}
+
+func TestAgentSerializesOverlappingRunCalls(t *testing.T) {
+	ctx := context.Background()
+	model := newOverlappingRunModel()
+	agent, err := New(Config{ID: "serialized-agent"}, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := agent.Run(ctx, "first question")
+		firstDone <- err
+	}()
+
+	select {
+	case <-model.firstEntered:
+	case <-time.After(time.Second):
+		t.Fatal("first run did not enter the model")
+	}
+
+	secondStarted := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		close(secondStarted)
+		_, err := agent.Run(ctx, "second question")
+		secondDone <- err
+	}()
+
+	select {
+	case <-secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("second run goroutine did not start")
+	}
+
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+
+	wantSecondRequest := []Message{
+		{Role: RoleUser, Content: "first question"},
+		{Role: RoleAssistant, Content: "first answer"},
+		{Role: RoleUser, Content: "second question"},
+	}
+	if got := model.requestMessages(1); !reflect.DeepEqual(got, wantSecondRequest) {
+		t.Fatalf("second request messages = %#v, want serialized context %#v", got, wantSecondRequest)
+	}
+	wantMessages := append(wantSecondRequest, Message{Role: RoleAssistant, Content: "second answer"})
+	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
+		t.Fatalf("agent messages = %#v, want serialized conversation %#v", got, wantMessages)
+	}
+}
+
+func TestAgentSerializesRunBehindActiveRunStream(t *testing.T) {
+	ctx := context.Background()
+	model := newRunBehindStreamModel()
+	agent, err := New(Config{ID: "serialized-stream-agent"}, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "stream question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := <-stream
+	if event.Type != StreamEventDelta || event.Delta != "stream " {
+		t.Fatalf("first stream event = %#v, want stream delta", event)
+	}
+
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := agent.Run(ctx, "run question")
+		runDone <- err
+	}()
+
+	generateStartedEarly := false
+	select {
+	case <-model.generateEntered:
+		generateStartedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(model.allowStreamDone)
+	remaining := collectStreamEvents(t, stream)
+	if len(remaining) != 1 || remaining[0].Type != StreamEventDone || remaining[0].Message.Content != "stream answer" {
+		t.Fatalf("remaining stream events = %#v, want final stream answer", remaining)
+	}
+	if err := <-runDone; err != nil {
+		t.Fatal(err)
+	}
+	if generateStartedEarly {
+		t.Fatal("Run reached the model before the active RunStream completed")
+	}
+
+	wantRunRequest := []Message{
+		{Role: RoleUser, Content: "stream question"},
+		{Role: RoleAssistant, Content: "stream answer"},
+		{Role: RoleUser, Content: "run question"},
+	}
+	if got := model.generateRequestMessages(0); !reflect.DeepEqual(got, wantRunRequest) {
+		t.Fatalf("run request messages = %#v, want serialized stream context %#v", got, wantRunRequest)
+	}
+	wantMessages := append(wantRunRequest, Message{Role: RoleAssistant, Content: "run answer"})
+	if got := agent.Messages(); !reflect.DeepEqual(got, wantMessages) {
+		t.Fatalf("agent messages = %#v, want stream before run conversation %#v", got, wantMessages)
+	}
+}
+
+func TestAgentNestedRunFromCallbacksReturnsActiveRunError(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*testing.T, *error) *Agent
+	}{
+		{
+			name: "hook",
+			build: func(t *testing.T, nestedErr *error) *Agent {
+				t.Helper()
+				model := &recordingModel{responses: []ModelResponse{{Message: Message{Role: RoleAssistant, Content: "outer answer"}}}}
+				var bot *Agent
+				bot, err := New(Config{ID: "nested-hook-agent"}, model,
+					WithHook(func(ctx context.Context, event Event) error {
+						if event.Type == EventBeforeModel {
+							_, *nestedErr = bot.Run(ctx, "nested from hook")
+						}
+						return nil
+					}),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return bot
+			},
+		},
+		{
+			name: "approval",
+			build: func(t *testing.T, nestedErr *error) *Agent {
+				t.Helper()
+				model := &recordingModel{responses: []ModelResponse{
+					{Message: Message{Role: RoleAssistant}, ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "hello"}}}},
+					{Message: Message{Role: RoleAssistant, Content: "outer answer"}},
+				}}
+				var bot *Agent
+				bot, err := New(Config{ID: "nested-approval-agent"}, model,
+					WithTools(ToolFunc{
+						ToolName:        "echo",
+						ToolDescription: "Echo text",
+						Fn: func(context.Context, ToolCall) (ToolResult, error) {
+							return ToolResult{Content: "hello"}, nil
+						},
+					}),
+					WithApprovalPolicy(ApprovalFunc(func(ctx context.Context, request ApprovalRequest) (ApprovalDecision, error) {
+						_, *nestedErr = bot.Run(ctx, "nested from approval")
+						return ApprovalDecision{Approved: true, Reason: "allowed"}, nil
+					})),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return bot
+			},
+		},
+		{
+			name: "tool",
+			build: func(t *testing.T, nestedErr *error) *Agent {
+				t.Helper()
+				model := &recordingModel{responses: []ModelResponse{
+					{Message: Message{Role: RoleAssistant}, ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "hello"}}}},
+					{Message: Message{Role: RoleAssistant, Content: "outer answer"}},
+				}}
+				var bot *Agent
+				bot, err := New(Config{ID: "nested-tool-agent"}, model,
+					WithTools(ToolFunc{
+						ToolName:        "echo",
+						ToolDescription: "Echo text",
+						Fn: func(ctx context.Context, call ToolCall) (ToolResult, error) {
+							_, *nestedErr = bot.Run(ctx, "nested from tool")
+							return ToolResult{CallID: call.ID, Name: call.Name, Content: "hello"}, nil
+						},
+					}),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return bot
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var nestedErr error
+			bot := tt.build(t, &nestedErr)
+			done := make(chan error, 1)
+			go func() {
+				_, err := bot.Run(context.Background(), "outer question")
+				done <- err
+			}()
+
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("outer Run did not finish after nested same-agent Run")
+			}
+			assertActiveRunError(t, nestedErr)
+		})
+	}
+}
+
+func TestAgentNestedRunThroughForkPreservesParentActiveRunMarker(t *testing.T) {
+	ctx := context.Background()
+	model := &recordingModel{responses: []ModelResponse{
+		{Message: Message{Role: RoleAssistant, Content: "fork answer"}},
+		{Message: Message{Role: RoleAssistant, Content: "parent answer"}},
+	}}
+
+	var parent *Agent
+	var fork *Agent
+	var nestedErr error
+	var forkErr error
+	var parentHookOnce sync.Once
+	var forkHookOnce sync.Once
+
+	parent, err := New(Config{ID: "active-parent"}, model,
+		WithHook(func(ctx context.Context, event Event) error {
+			if event.Type != EventBeforeModel {
+				return nil
+			}
+			switch event.AgentID {
+			case "active-parent":
+				parentHookOnce.Do(func() {
+					_, forkErr = fork.Run(ctx, "fork question")
+				})
+			case "active-fork":
+				forkHookOnce.Do(func() {
+					_, nestedErr = parent.Run(ctx, "nested parent question")
+				})
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork, err = parent.Fork("active-fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := parent.Run(ctx, "parent question")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("parent Run did not finish after fork callback called back into parent")
+	}
+	if forkErr != nil {
+		t.Fatalf("fork Run error = %v", forkErr)
+	}
+	assertActiveRunError(t, nestedErr)
+}
+
+func TestAgentRunSlotWaitRespectsContextCancellation(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(context.Context, *Agent) error
+	}{
+		{
+			name: "Run",
+			call: func(ctx context.Context, bot *Agent) error {
+				_, err := bot.Run(ctx, "waiting run")
+				return err
+			},
+		},
+		{
+			name: "RunStream",
+			call: func(ctx context.Context, bot *Agent) error {
+				events, err := bot.RunStream(ctx, "waiting stream")
+				if events != nil {
+					for range events {
+					}
+				}
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := newBlockingRunSlotModel()
+			bot, err := New(Config{ID: "canceled-wait-agent"}, model)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			firstDone := make(chan error, 1)
+			go func() {
+				_, err := bot.Run(context.Background(), "active run")
+				firstDone <- err
+			}()
+			select {
+			case <-model.entered:
+			case <-time.After(time.Second):
+				t.Fatal("first run did not enter the model")
+			}
+
+			waitCtx, cancel := context.WithCancel(context.Background())
+			waitDone := make(chan error, 1)
+			go func() {
+				waitDone <- tt.call(waitCtx, bot)
+			}()
+			cancel()
+
+			select {
+			case err := <-waitDone:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("waiting call error = %v, want context.Canceled", err)
+				}
+				var agentErr *AgentError
+				if !errors.As(err, &agentErr) {
+					t.Fatalf("waiting call error = %T, want *AgentError", err)
+				}
+				if agentErr.Category != ErrorCategoryConfig || agentErr.Operation != "run.acquire" {
+					t.Fatalf("waiting call error context = %#v, want config/run.acquire", agentErr)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("waiting call did not return after context cancellation")
+			}
+
+			close(model.release)
+			if err := <-firstDone; err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -3097,6 +3447,173 @@ func (m *recordingModel) Generate(ctx context.Context, request ModelRequest) (Mo
 	response := m.responses[0]
 	m.responses = m.responses[1:]
 	return response, nil
+}
+
+type overlappingRunModel struct {
+	mu            sync.Mutex
+	requests      []ModelRequest
+	firstEntered  chan struct{}
+	secondEntered chan struct{}
+	closeFirst    sync.Once
+	closeSecond   sync.Once
+}
+
+func newOverlappingRunModel() *overlappingRunModel {
+	return &overlappingRunModel{
+		firstEntered:  make(chan struct{}),
+		secondEntered: make(chan struct{}),
+	}
+}
+
+func (m *overlappingRunModel) Generate(ctx context.Context, request ModelRequest) (ModelResponse, error) {
+	m.mu.Lock()
+	m.requests = append(m.requests, request)
+	index := len(m.requests)
+	m.mu.Unlock()
+
+	switch index {
+	case 1:
+		m.closeFirst.Do(func() { close(m.firstEntered) })
+		select {
+		case <-m.secondEntered:
+			// Give an overlapping second run time to append before the first run finishes.
+			time.Sleep(25 * time.Millisecond)
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return ModelResponse{}, ctx.Err()
+		}
+		return ModelResponse{Message: Message{Role: RoleAssistant, Content: "first answer"}}, nil
+	case 2:
+		m.closeSecond.Do(func() { close(m.secondEntered) })
+		return ModelResponse{Message: Message{Role: RoleAssistant, Content: "second answer"}}, nil
+	default:
+		return ModelResponse{Message: Message{Role: RoleAssistant, Content: fmt.Sprintf("answer %d", index)}}, nil
+	}
+}
+
+func (m *overlappingRunModel) requestMessages(index int) []Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if index < 0 || index >= len(m.requests) {
+		return nil
+	}
+	return cloneMessages(m.requests[index].Messages)
+}
+
+type runBehindStreamModel struct {
+	mu               sync.Mutex
+	streamRequests   []ModelRequest
+	generateRequests []ModelRequest
+	allowStreamDone  chan struct{}
+	generateEntered  chan struct{}
+	closeGenerate    sync.Once
+}
+
+func newRunBehindStreamModel() *runBehindStreamModel {
+	return &runBehindStreamModel{
+		allowStreamDone: make(chan struct{}),
+		generateEntered: make(chan struct{}),
+	}
+}
+
+func (m *runBehindStreamModel) Generate(ctx context.Context, request ModelRequest) (ModelResponse, error) {
+	m.mu.Lock()
+	m.generateRequests = append(m.generateRequests, request)
+	m.mu.Unlock()
+	m.closeGenerate.Do(func() { close(m.generateEntered) })
+	return ModelResponse{Message: Message{Role: RoleAssistant, Content: "run answer"}}, nil
+}
+
+func (m *runBehindStreamModel) Stream(ctx context.Context, request ModelRequest) (<-chan StreamEvent, error) {
+	m.mu.Lock()
+	m.streamRequests = append(m.streamRequests, request)
+	m.mu.Unlock()
+
+	events := make(chan StreamEvent)
+	go func() {
+		defer close(events)
+		select {
+		case <-ctx.Done():
+			return
+		case events <- StreamEvent{Type: StreamEventDelta, Delta: "stream "}:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.allowStreamDone:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case events <- StreamEvent{Type: StreamEventDone, Message: Message{Role: RoleAssistant, Content: "stream answer"}}:
+		}
+	}()
+	return events, nil
+}
+
+func (m *runBehindStreamModel) generateRequestMessages(index int) []Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if index < 0 || index >= len(m.generateRequests) {
+		return nil
+	}
+	return cloneMessages(m.generateRequests[index].Messages)
+}
+
+func assertActiveRunError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("nested Run error = nil, want active run error")
+	}
+	var agentErr *AgentError
+	if !errors.As(err, &agentErr) {
+		t.Fatalf("nested Run error = %T, want *AgentError", err)
+	}
+	if agentErr.Category != ErrorCategoryConfig || agentErr.Operation != "run.active" {
+		t.Fatalf("nested Run error context = %#v, want config/run.active", agentErr)
+	}
+}
+
+type blockingRunSlotModel struct {
+	mu       sync.Mutex
+	requests []ModelRequest
+	entered  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+}
+
+func newBlockingRunSlotModel() *blockingRunSlotModel {
+	return &blockingRunSlotModel{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (m *blockingRunSlotModel) Generate(ctx context.Context, request ModelRequest) (ModelResponse, error) {
+	m.mu.Lock()
+	m.requests = append(m.requests, request)
+	m.mu.Unlock()
+	m.once.Do(func() { close(m.entered) })
+
+	select {
+	case <-ctx.Done():
+		return ModelResponse{}, ctx.Err()
+	case <-m.release:
+		return ModelResponse{Message: Message{Role: RoleAssistant, Content: "released"}}, nil
+	}
+}
+
+func (m *blockingRunSlotModel) Stream(ctx context.Context, request ModelRequest) (<-chan StreamEvent, error) {
+	events := make(chan StreamEvent)
+	go func() {
+		defer close(events)
+		select {
+		case <-ctx.Done():
+			return
+		case events <- StreamEvent{Type: StreamEventDone, Message: Message{Role: RoleAssistant, Content: "stream released"}}:
+		}
+	}()
+	return events, nil
 }
 
 type failingModel struct {

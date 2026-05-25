@@ -21,12 +21,13 @@
     - Tests cover cancellation while forwarding events and verify no final assistant message is committed after cancellation.
     - Provider stream contexts are canceled when the returned stream is abandoned via context cancellation.
 
-- [ ] **3. Same-agent concurrent run semantics**
+- [x] **3. Same-agent concurrent run semantics**
   - Define safe behavior for overlapping `Run` and `RunStream` calls on the same agent.
   - Acceptance criteria:
     - Documentation clearly recommends one active run per agent unless callers isolate state with forked/session agents.
     - If serialization is added, tests cover overlapping runs and deterministic context ordering.
     - Existing single-run behavior is unchanged.
+  - Implementation choice: same-agent `Run` and `RunStream` calls are serialized with a context-aware run slot; callback reentry with the active run context returns `run.active`, and canceled waiters return `run.acquire`.
 
 - [ ] **4. Provider streamed tool-call normalization**
   - Normalize built-in provider adapters so streamed tool-call signals become SDK tool-call events instead of provider-specific unsupported errors.

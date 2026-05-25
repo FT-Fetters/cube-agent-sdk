@@ -15,6 +15,9 @@ var nextAgentID uint64
 
 // Agent manages prompt assembly, context, tools, skills, MCP configuration, and subagents.
 type Agent struct {
+	// runSlot serializes whole Run and RunStream lifecycles so shared context stays ordered.
+	runSlot chan struct{}
+
 	mu sync.Mutex
 
 	id     string
@@ -103,6 +106,9 @@ const (
 )
 
 type runIDContextKey struct{}
+type activeRunAgentContextKey struct{}
+
+var errAgentRunActive = errors.New("agent: run already active")
 
 // New constructs an Agent with the provided model and optional capabilities.
 func New(config Config, model Model, options ...Option) (*Agent, error) {
@@ -118,6 +124,7 @@ func New(config Config, model Model, options ...Option) (*Agent, error) {
 
 	agent := &Agent{
 		id:              config.ID,
+		runSlot:         make(chan struct{}, 1),
 		model:           model,
 		config:          config,
 		skills:          make(map[string]Skill),
@@ -374,6 +381,11 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 		}
 	}
 	ctx = withRunID(ctx, a.runID(config))
+	ctx, releaseRun, err := a.acquireRun(ctx)
+	if err != nil {
+		return Message{}, err
+	}
+	defer releaseRun()
 
 	if err := a.checkModelCapabilities(ctx, false); err != nil {
 		return Message{}, err
@@ -509,6 +521,16 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 		}
 	}
 	ctx = withRunID(ctx, a.runID(config))
+	ctx, releaseRun, err := a.acquireRun(ctx)
+	if err != nil {
+		return nil, err
+	}
+	releaseRunOnReturn := true
+	defer func() {
+		if releaseRunOnReturn {
+			releaseRun()
+		}
+	}()
 	started := time.Now()
 	if err := a.checkModelCapabilities(ctx, true); err != nil {
 		return nil, err
@@ -577,7 +599,8 @@ func (a *Agent) RunStream(ctx context.Context, input string, options ...RunOptio
 	}
 
 	out := make(chan StreamEvent)
-	go a.forwardStreamEvents(streamCtx, cancelStream, streamModel, activeSkills, firstRound, out, config.observeStreamLifecycle)
+	releaseRunOnReturn = false
+	go a.forwardStreamEvents(streamCtx, cancelStream, streamModel, activeSkills, firstRound, out, config.observeStreamLifecycle, releaseRun)
 	return out, nil
 }
 
@@ -681,10 +704,13 @@ func (a *Agent) handleStreamStartError(ctx context.Context, state activeStreamRo
 	return wrapped
 }
 
-func (a *Agent) forwardStreamEvents(ctx context.Context, cancelStream context.CancelFunc, streamModel StreamModel, activeSkills []Skill, firstRound activeStreamRound, out chan<- StreamEvent, observeStreamLifecycle bool) {
+func (a *Agent) forwardStreamEvents(ctx context.Context, cancelStream context.CancelFunc, streamModel StreamModel, activeSkills []Skill, firstRound activeStreamRound, out chan<- StreamEvent, observeStreamLifecycle bool, releaseRun func()) {
 	defer func() {
 		cancelStream()
 		close(out)
+		if releaseRun != nil {
+			releaseRun()
+		}
 	}()
 
 	agentID := a.agentID()
@@ -1270,6 +1296,57 @@ func (a *Agent) runID(config runConfig) string {
 	}
 	sequence := atomic.AddUint64(&a.runSeq, 1)
 	return fmt.Sprintf("%s-run-%d", a.agentID(), sequence)
+}
+
+func (a *Agent) acquireRun(ctx context.Context) (context.Context, func(), error) {
+	if activeRunAgentInContext(ctx, a) {
+		return ctx, nil, a.runSlotError(ctx, "run.active", errAgentRunActive)
+	}
+	if err := ctx.Err(); err != nil {
+		return ctx, nil, a.runSlotError(ctx, "run.acquire", err)
+	}
+
+	select {
+	case a.runSlot <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-a.runSlot
+			return ctx, nil, a.runSlotError(ctx, "run.acquire", err)
+		}
+		return withActiveRunAgent(ctx, a), func() { <-a.runSlot }, nil
+	case <-ctx.Done():
+		return ctx, nil, a.runSlotError(ctx, "run.acquire", ctx.Err())
+	}
+}
+
+func (a *Agent) runSlotError(ctx context.Context, operation string, cause error) error {
+	wrapped := agentError(ErrorCategoryConfig, operation, cause)
+	wrapped.AgentID = a.agentID()
+	wrapped.RunID = runIDFromContext(ctx)
+	setAgentErrorTraceContext(wrapped, traceContextFromContext(ctx))
+	return wrapped
+}
+
+func withActiveRunAgent(ctx context.Context, agent *Agent) context.Context {
+	activeAgents := activeRunAgentsFromContext(ctx)
+	activeAgents = append(activeAgents, agent)
+	return context.WithValue(ctx, activeRunAgentContextKey{}, activeAgents)
+}
+
+func activeRunAgentInContext(ctx context.Context, agent *Agent) bool {
+	for _, activeAgent := range activeRunAgentsFromContext(ctx) {
+		if activeAgent == agent {
+			return true
+		}
+	}
+	return false
+}
+
+func activeRunAgentsFromContext(ctx context.Context) []*Agent {
+	if ctx == nil {
+		return nil
+	}
+	activeAgents, _ := ctx.Value(activeRunAgentContextKey{}).([]*Agent)
+	return append([]*Agent(nil), activeAgents...)
 }
 
 func withRunID(ctx context.Context, runID string) context.Context {

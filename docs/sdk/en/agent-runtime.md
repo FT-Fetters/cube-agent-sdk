@@ -34,6 +34,27 @@ Useful context APIs:
 - `Reset` clears context without changing model or capabilities.
 - `Snapshot`, `Restore`, and `Fork` support persistence and branching.
 
+## Concurrent Runs
+
+An `Agent` owns one managed conversation timeline. Prefer one active `Run` or
+`RunStream` per agent. The SDK serializes overlapping calls on the same agent so
+message history remains deterministic, but serialization is a safety guard, not a
+parallelism model.
+
+A `RunStream` stays active until its returned channel is drained or its context is
+canceled. If another call starts on the same agent while a stream is active, it
+waits for that stream lifecycle to finish before appending input or building a
+model request. Waiting calls return a structured `AgentError` with operation
+`run.acquire` if their context is canceled before the run slot is available.
+
+Hooks, approval policies, and tools receive the active run context. Calling
+`Run` or `RunStream` on the same agent with that context returns a structured
+`AgentError` with operation `run.active` instead of blocking the outer callback.
+
+For parallel conversations, isolate state by using `Fork` or by creating separate
+agents from persisted session snapshots. Each forked or session-restored agent
+owns its own context ordering.
+
 ## Run Lifecycle
 
 1. Append user input.

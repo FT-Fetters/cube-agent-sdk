@@ -32,6 +32,24 @@ assistant 消息会被追加。工具循环会在下一轮模型调用前追加 
 - `Reset` 清空上下文，不改变模型或能力。
 - `Snapshot`、`Restore` 和 `Fork` 支持持久化和分支。
 
+## 并发 Run
+
+`Agent` 拥有一条托管会话时间线。建议同一个 agent 同一时间只保持一个
+`Run` 或 `RunStream` 活跃。SDK 会串行化同一个 agent 上重叠的调用，保证
+message history 的顺序确定；但这只是安全保护，不是并行执行模型。
+
+`RunStream` 在返回的 channel 被读完或它的 context 被取消前都算作活跃。如果
+同一个 agent 上还有 stream 活跃，新的调用会等待该 stream 生命周期结束，然后
+才追加输入并构造模型请求。如果等待中的调用在获得 run slot 前被取消，会返回
+operation 为 `run.acquire` 的结构化 `AgentError`。
+
+Hooks、approval policies 和 tools 会收到当前活跃 run 的 context。用这个 context
+在同一个 agent 上再次调用 `Run` 或 `RunStream` 时，会返回 operation 为
+`run.active` 的结构化 `AgentError`，而不是阻塞外层 callback。
+
+需要并行会话时，用 `Fork` 隔离状态，或从持久化 session snapshot 创建独立
+agent。每个 fork 或 session restore 出来的 agent 都拥有自己的上下文顺序。
+
 ## Run 生命周期
 
 1. 追加用户输入。
