@@ -317,8 +317,8 @@ func redactionToolErrorObservations(t *testing.T, sentinels redactionRegressionS
 		t.Fatal(err)
 	}
 
-	if _, err := bot.Run(context.Background(), sentinels.userMessage); err == nil {
-		t.Fatal("Run error = nil, want raw tool error")
+	if _, err := bot.Run(context.Background(), sentinels.userMessage); err != nil {
+		t.Fatalf("Run error = %v, want tool error feedback to continue", err)
 	}
 	return recorder.Observations()
 }

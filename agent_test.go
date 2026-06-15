@@ -673,17 +673,12 @@ func TestAgentTraceContextPropagatesToRunEventsObservationsAndErrors(t *testing.
 	}
 	bot.AppendMessage(Message{Role: RoleUser, Content: "before"})
 
-	_, err = bot.Run(ctx, "use fail", WithRunSkills("planner"))
-	if !errors.Is(err, toolErr) {
-		t.Fatalf("err = %v, want tool error", err)
+	reply, err := bot.Run(ctx, "use fail", WithRunSkills("planner"))
+	if err != nil {
+		t.Fatalf("Run error = %v, want tool error feedback to continue", err)
 	}
-	var agentErr *AgentError
-	if !errors.As(err, &agentErr) {
-		t.Fatalf("err = %T, want *AgentError", err)
-	}
-	assertAgentErrorTraceContext(t, agentErr, trace)
-	if agentErr.RunID == "" || agentErr.RunID == trace.TraceID {
-		t.Fatalf("agent error run ID = %q, want generated ID distinct from trace ID %q", agentErr.RunID, trace.TraceID)
+	if reply.Content != "" {
+		t.Fatalf("reply content = %q, want default empty response after tool feedback", reply.Content)
 	}
 
 	required := []EventType{
@@ -713,6 +708,16 @@ func TestAgentTraceContextPropagatesToRunEventsObservationsAndErrors(t *testing.
 			t.Fatalf("%s observation run ID = %q, want generated ID distinct from trace ID %q", eventType, observation.RunID, trace.TraceID)
 		}
 		assertObservationDoesNotContain(t, observation, "context-secret")
+	}
+
+	afterTool := firstEventOfType(t, events, EventAfterTool)
+	var toolAgentErr *AgentError
+	if !errors.As(afterTool.Error, &toolAgentErr) {
+		t.Fatalf("after tool error = %T, want *AgentError", afterTool.Error)
+	}
+	assertAgentErrorTraceContext(t, toolAgentErr, trace)
+	if toolAgentErr.RunID == "" || toolAgentErr.RunID == trace.TraceID {
+		t.Fatalf("tool error run ID = %q, want generated ID distinct from trace ID %q", toolAgentErr.RunID, trace.TraceID)
 	}
 
 	child, err := bot.SpawnSubagent(ctx, SubagentOptions{
@@ -796,7 +801,10 @@ func TestAgentToolPreflightFailuresEmitAfterToolAuditEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			model := &recordingModel{responses: []ModelResponse{{ToolCalls: []ToolCall{tt.toolCall}}}}
+			model := &recordingModel{responses: []ModelResponse{
+				{ToolCalls: []ToolCall{tt.toolCall}},
+				{Message: Message{Role: RoleAssistant, Content: "done"}},
+			}}
 			var events []Event
 			options := append([]Option{}, tt.options...)
 			options = append(options, WithHook(func(ctx context.Context, event Event) error {
@@ -809,12 +817,18 @@ func TestAgentToolPreflightFailuresEmitAfterToolAuditEvent(t *testing.T) {
 			}
 
 			_, err = bot.Run(ctx, "use tool")
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("err = %v, want sentinel %v", err, tt.wantErr)
+			if tt.wantCat == ErrorCategoryApproval {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("err = %v, want sentinel %v", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("Run error = %v, want tool error feedback to continue", err)
 			}
+
+			afterTool := firstEventOfType(t, events, EventAfterTool)
 			var agentErr *AgentError
-			if !errors.As(err, &agentErr) {
-				t.Fatalf("err = %T, want *AgentError", err)
+			if !errors.As(afterTool.Error, &agentErr) {
+				t.Fatalf("after tool error = %T, want *AgentError", afterTool.Error)
 			}
 			if agentErr.Category != tt.wantCat || agentErr.Operation != tt.wantOp {
 				t.Fatalf("agent error category/operation = %q/%q, want %q/%q", agentErr.Category, agentErr.Operation, tt.wantCat, tt.wantOp)
@@ -822,8 +836,6 @@ func TestAgentToolPreflightFailuresEmitAfterToolAuditEvent(t *testing.T) {
 			if agentErr.RequestID == "" || agentErr.Round != 1 || agentErr.ToolName != tt.toolCall.Name {
 				t.Fatalf("agent error context = %#v, want request ID, round, and tool name", agentErr)
 			}
-
-			afterTool := firstEventOfType(t, events, EventAfterTool)
 			if afterTool.RequestID == "" || afterTool.RequestID != agentErr.RequestID {
 				t.Fatalf("after tool request ID = %q, want agent error request ID %q", afterTool.RequestID, agentErr.RequestID)
 			}
@@ -2000,6 +2012,89 @@ func TestAgentRunStreamExecutesToolCallsAndContinuesStreaming(t *testing.T) {
 	}
 	if secondModel.ParentRequestID != firstModel.RequestID {
 		t.Fatalf("second model parent request ID = %q, want first model request ID %q", secondModel.ParentRequestID, firstModel.RequestID)
+	}
+}
+
+func TestAgentRunStreamFeedsToolValidationErrorBackToModel(t *testing.T) {
+	ctx := context.Background()
+	model := &streamingRecordingModel{streamEventBatches: [][]StreamEvent{
+		{
+			{
+				Type: StreamEventDone,
+				Message: Message{
+					Role:    RoleAssistant,
+					Content: "checking",
+					ToolCalls: []ToolCall{{
+						ID:        "call-1",
+						Name:      "echo",
+						Arguments: map[string]any{},
+					}},
+				},
+			},
+		},
+		{
+			{Type: StreamEventDelta, Delta: "corrected"},
+			{Type: StreamEventDone},
+		},
+	}}
+	var events []Event
+	called := false
+	agent, err := New(Config{ID: "stream-tool-validation-agent", SystemPrompt: "base"}, model,
+		WithTools(ToolFunc{
+			ToolName:        "echo",
+			ToolDescription: "Echo text",
+			Parameters: &ToolParametersSchema{
+				Type:     SchemaTypeObject,
+				Required: []string{"text"},
+				Properties: map[string]ToolParametersSchema{
+					"text": {Type: SchemaTypeString},
+				},
+			},
+			Fn: func(context.Context, ToolCall) (ToolResult, error) {
+				called = true
+				return ToolResult{}, nil
+			},
+		}),
+		WithHook(func(ctx context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := agent.RunStream(ctx, "use echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectStreamEvents(t, stream)
+
+	if len(got) != 2 {
+		t.Fatalf("stream events = %#v, want corrected delta and done", got)
+	}
+	if got[0].Type != StreamEventDelta || got[0].Delta != "corrected" {
+		t.Fatalf("first event = %#v, want corrected delta", got[0])
+	}
+	if got[1].Type != StreamEventDone || got[1].Message.Content != "corrected" {
+		t.Fatalf("done event = %#v, want corrected final assistant", got[1])
+	}
+	if called {
+		t.Fatal("tool was called after schema validation failed")
+	}
+	if len(model.requests) != 2 {
+		t.Fatalf("stream requests = %d, want two model rounds", len(model.requests))
+	}
+	toolMessage := model.requests[1].Messages[len(model.requests[1].Messages)-1]
+	if toolMessage.Role != RoleTool || toolMessage.Name != "echo" || toolMessage.ToolCallID != "call-1" {
+		t.Fatalf("feedback message = %#v, want tool message for echo call-1", toolMessage)
+	}
+	if !strings.Contains(toolMessage.Content, "Tool call failed") || !strings.Contains(toolMessage.Content, "missing required parameter") {
+		t.Fatalf("feedback content = %q, want validation guidance", toolMessage.Content)
+	}
+	afterTool := firstEventOfTypeAndRound(t, events, EventAfterTool, 1)
+	if afterTool.ErrorCategory != ErrorCategorySchema || !errors.Is(afterTool.Error, ErrToolValidation) {
+		t.Fatalf("after tool error = category %q error %v, want schema validation", afterTool.ErrorCategory, afterTool.Error)
 	}
 }
 
@@ -3260,10 +3355,11 @@ func TestAgentExecutesToolWhenSchemaArgumentsAreValid(t *testing.T) {
 	}
 }
 
-func TestAgentRejectsToolCallMissingRequiredSchemaArgument(t *testing.T) {
+func TestAgentFeedsToolValidationErrorBackToModel(t *testing.T) {
 	ctx := context.Background()
 	model := &recordingModel{responses: []ModelResponse{
 		{ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{}}}},
+		{Message: Message{Role: RoleAssistant, Content: "I corrected the arguments."}},
 	}}
 	called := false
 	agent, err := New(Config{SystemPrompt: "base"}, model,
@@ -3287,65 +3383,59 @@ func TestAgentRejectsToolCallMissingRequiredSchemaArgument(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = agent.Run(ctx, "use echo")
-	if err == nil {
-		t.Fatal("Run returned nil error, want validation error")
+	response, err := agent.Run(ctx, "use echo")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
 	}
-	if !errors.Is(err, ErrToolValidation) {
-		t.Fatalf("err = %v, want ErrToolValidation", err)
-	}
-	var validationErr *ToolValidationError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("err = %T, want *ToolValidationError", err)
-	}
-	if validationErr.ToolName != "echo" || validationErr.Parameter != "text" {
-		t.Fatalf("validation error = %#v, want echo text", validationErr)
+	if response.Content != "I corrected the arguments." {
+		t.Fatalf("response content = %q", response.Content)
 	}
 	if called {
 		t.Fatal("tool was called after schema validation failed")
+	}
+	if len(model.requests) != 2 {
+		t.Fatalf("request count = %d, want 2", len(model.requests))
+	}
+	secondRequest := model.requests[1]
+	if len(secondRequest.Messages) == 0 {
+		t.Fatal("second request has no messages")
+	}
+	toolMessage := secondRequest.Messages[len(secondRequest.Messages)-1]
+	if toolMessage.Role != RoleTool || toolMessage.Name != "echo" || toolMessage.ToolCallID != "call-1" {
+		t.Fatalf("feedback message = %#v, want tool message for echo call-1", toolMessage)
+	}
+	if !strings.Contains(toolMessage.Content, "Tool call failed") || !strings.Contains(toolMessage.Content, "missing required parameter") {
+		t.Fatalf("feedback content = %q, want validation guidance", toolMessage.Content)
 	}
 }
 
-func TestAgentRejectsToolCallWithSchemaTypeMismatch(t *testing.T) {
+func TestAgentFeedsToolCallErrorBackToModel(t *testing.T) {
 	ctx := context.Background()
 	model := &recordingModel{responses: []ModelResponse{
-		{ToolCalls: []ToolCall{{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": 42}}}},
+		{ToolCalls: []ToolCall{{ID: "call-1", Name: "missing", Arguments: map[string]any{"text": "hello"}}}},
+		{Message: Message{Role: RoleAssistant, Content: "I chose another approach."}},
 	}}
-	called := false
-	agent, err := New(Config{SystemPrompt: "base"}, model,
-		WithTools(ToolFunc{
-			ToolName:        "echo",
-			ToolDescription: "Echo text",
-			Parameters: &ToolParametersSchema{
-				Type:     SchemaTypeObject,
-				Required: []string{"text"},
-				Properties: map[string]ToolParametersSchema{
-					"text": {Type: SchemaTypeString},
-				},
-			},
-			Fn: func(context.Context, ToolCall) (ToolResult, error) {
-				called = true
-				return ToolResult{}, nil
-			},
-		}),
-	)
+	agent, err := New(Config{SystemPrompt: "base"}, model)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = agent.Run(ctx, "use echo")
-	if !errors.Is(err, ErrToolValidation) {
-		t.Fatalf("err = %v, want ErrToolValidation", err)
+	response, err := agent.Run(ctx, "use missing")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
 	}
-	var validationErr *ToolValidationError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("err = %T, want *ToolValidationError", err)
+	if response.Content != "I chose another approach." {
+		t.Fatalf("response content = %q", response.Content)
 	}
-	if validationErr.ToolName != "echo" || validationErr.Parameter != "text" {
-		t.Fatalf("validation error = %#v, want echo text", validationErr)
+	if len(model.requests) != 2 {
+		t.Fatalf("request count = %d, want 2", len(model.requests))
 	}
-	if called {
-		t.Fatal("tool was called after schema validation failed")
+	toolMessage := model.requests[1].Messages[len(model.requests[1].Messages)-1]
+	if toolMessage.Role != RoleTool || toolMessage.Name != "missing" || toolMessage.ToolCallID != "call-1" {
+		t.Fatalf("feedback message = %#v, want tool message for missing call-1", toolMessage)
+	}
+	if !strings.Contains(toolMessage.Content, "tool not found") {
+		t.Fatalf("feedback content = %q, want tool-not-found message", toolMessage.Content)
 	}
 }
 

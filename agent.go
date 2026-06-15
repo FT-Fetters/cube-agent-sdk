@@ -493,15 +493,13 @@ func (a *Agent) Run(ctx context.Context, input string, options ...RunOption) (Me
 		for _, call := range response.ToolCalls {
 			result, err := a.executeTool(ctx, call, roundNumber, requestID)
 			if err != nil {
+				if feedback, ok := toolErrorFeedbackResult(call, err); ok && ctx.Err() == nil {
+					a.appendToolResultMessage(feedback)
+					continue
+				}
 				return Message{}, err
 			}
-			a.appendMessage(Message{
-				Role:       RoleTool,
-				Name:       result.Name,
-				ToolCallID: result.CallID,
-				Content:    result.Content,
-				Metadata:   result.Metadata,
-			})
+			a.appendToolResultMessage(result)
 		}
 		if err := a.maybeCompact(ctx, roundNumber, requestID); err != nil {
 			return Message{}, err
@@ -735,19 +733,17 @@ func (a *Agent) forwardStreamEvents(ctx context.Context, cancelStream context.Ca
 		for _, call := range outcome.toolCalls {
 			result, err := a.executeTool(ctx, call, round.round, round.requestID)
 			if err != nil {
+				if feedback, ok := toolErrorFeedbackResult(call, err); ok && ctx.Err() == nil {
+					a.appendToolResultMessage(feedback)
+					continue
+				}
 				a.sendStreamRuntimeError(ctx, out, agentID, err, round, outcome.telemetry, observeStreamLifecycle)
 				return
 			}
 			if ctx.Err() != nil {
 				return
 			}
-			a.appendMessage(Message{
-				Role:       RoleTool,
-				Name:       result.Name,
-				ToolCallID: result.CallID,
-				Content:    result.Content,
-				Metadata:   result.Metadata,
-			})
+			a.appendToolResultMessage(result)
 		}
 		if err := a.maybeCompact(ctx, round.round, round.requestID); err != nil {
 			a.sendStreamRuntimeError(ctx, out, agentID, err, round, outcome.telemetry, observeStreamLifecycle)
@@ -1105,6 +1101,16 @@ func (a *Agent) appendMessage(message Message) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.messages = append(a.messages, cloneMessage(message))
+}
+
+func (a *Agent) appendToolResultMessage(result ToolResult) {
+	a.appendMessage(Message{
+		Role:       RoleTool,
+		Name:       result.Name,
+		ToolCallID: result.CallID,
+		Content:    result.Content,
+		Metadata:   result.Metadata,
+	})
 }
 
 func (a *Agent) activeSkillsLocked() []Skill {

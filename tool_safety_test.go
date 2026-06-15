@@ -39,8 +39,8 @@ func TestToolSafetyTimeoutResultLimitAndAuditMetadata(t *testing.T) {
 	}
 
 	_, err = bot.Run(ctx, "run slow lookup")
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Run error = %v, want context deadline exceeded", err)
+	if err != nil {
+		t.Fatalf("Run error = %v, want timeout feedback to continue", err)
 	}
 
 	afterTool := firstObservationOfType(t, recorder.Observations(), EventAfterTool)
@@ -84,8 +84,8 @@ func TestToolSafetyRejectsOversizedResultsBeforeAppendingToContext(t *testing.T)
 	}
 
 	_, err = bot.Run(ctx, "run lookup")
-	if !errors.Is(err, ErrToolResultTooLarge) {
-		t.Fatalf("Run error = %v, want ErrToolResultTooLarge", err)
+	if err != nil {
+		t.Fatalf("Run error = %v, want result-size feedback to continue", err)
 	}
 	for _, message := range bot.Messages() {
 		if strings.Contains(message.Content, resultSecret) {

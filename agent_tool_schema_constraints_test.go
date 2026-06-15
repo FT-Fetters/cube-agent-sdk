@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 )
@@ -44,18 +43,22 @@ func TestAgentRejectsToolCallWithSchemaConstraintPathWithoutLeakingValue(t *test
 	}
 
 	_, err = agent.Run(ctx, "lookup")
-	if !errors.Is(err, ErrToolValidation) {
-		t.Fatalf("err = %v, want ErrToolValidation", err)
+	if err != nil {
+		t.Fatalf("Run error = %v, want validation feedback to continue", err)
 	}
-	var validationErr *ToolValidationError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("err = %T, want *ToolValidationError", err)
+	messages := agent.Messages()
+	if len(messages) < 3 {
+		t.Fatalf("agent messages = %#v, want tool feedback message", messages)
 	}
-	if validationErr.Parameter != "profile.token" {
-		t.Fatalf("parameter = %q, want profile.token", validationErr.Parameter)
+	feedback := messages[len(messages)-2]
+	if feedback.Role != RoleTool || feedback.ToolCallID != "call-1" {
+		t.Fatalf("feedback message = %#v, want tool feedback for call-1", feedback)
 	}
-	if strings.Contains(err.Error(), secret) {
-		t.Fatalf("validation error leaked rejected value: %v", err)
+	if !strings.Contains(feedback.Content, "profile.token") {
+		t.Fatalf("feedback content = %q, want schema path", feedback.Content)
+	}
+	if strings.Contains(feedback.Content, secret) {
+		t.Fatalf("feedback leaked rejected value: %q", feedback.Content)
 	}
 	if called {
 		t.Fatal("tool was called after schema validation failed")

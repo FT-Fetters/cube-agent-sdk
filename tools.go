@@ -246,6 +246,28 @@ func (a *Agent) failTool(ctx context.Context, call ToolCall, requestID string, p
 	return ToolResult{}, err
 }
 
+// toolErrorFeedbackResult turns model-correctable tool failures into a normal
+// tool message. Approval and hook failures remain terminal security/runtime errors.
+func toolErrorFeedbackResult(call ToolCall, err error) (ToolResult, bool) {
+	if err == nil {
+		return ToolResult{}, false
+	}
+	category := classifyError(err)
+	switch category {
+	case ErrorCategoryApproval, ErrorCategoryHook:
+		return ToolResult{}, false
+	}
+	return ToolResult{
+		CallID:  call.ID,
+		Name:    call.Name,
+		Content: toolErrorFeedbackContent(err),
+	}, true
+}
+
+func toolErrorFeedbackContent(err error) string {
+	return fmt.Sprintf("Tool call failed: %v. Fix the arguments or choose another approach.", err)
+}
+
 func (a *Agent) estimatedToolCallTokens(call ToolCall, result ToolResult) int {
 	content := call.Name
 	if len(call.Arguments) > 0 {

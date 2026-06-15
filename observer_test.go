@@ -314,8 +314,8 @@ func TestToolResultMetadataObservationFromToolExecutionDoesNotLeakPayloads(t *te
 	}
 
 	_, err = bot.Run(ctx, "run lookup")
-	if err == nil {
-		t.Fatal("Run error = nil, want tool error")
+	if err != nil {
+		t.Fatalf("Run error = %v, want tool error feedback to continue", err)
 	}
 
 	observation := firstObservationOfType(t, recorder.Observations(), EventAfterTool)
@@ -429,7 +429,6 @@ func TestToolLifecycleTimingObservationSegmentsSuccessDeniedAndValidationFailure
 					return ToolResult{}, nil
 				},
 			})},
-			wantErr:      ErrToolValidation,
 			wantCategory: ErrorCategorySchema,
 		},
 		{
