@@ -236,13 +236,23 @@ func anthropicMessages(messages []Message) ([]anthropicMessage, error) {
 			}
 			mapped = append(mapped, anthropicMessage{Role: "assistant", Content: content})
 		case RoleTool:
+			toolResult := anthropicContentBlock{
+				Type:      "tool_result",
+				ToolUseID: message.ToolCallID,
+				Content:   message.Content,
+			}
+			if len(mapped) > 0 {
+				last := &mapped[len(mapped)-1]
+				if last.Role == "user" {
+					if blocks, ok := last.Content.([]anthropicContentBlock); ok {
+						last.Content = append(blocks, toolResult)
+						continue
+					}
+				}
+			}
 			mapped = append(mapped, anthropicMessage{
-				Role: "user",
-				Content: []anthropicContentBlock{{
-					Type:      "tool_result",
-					ToolUseID: message.ToolCallID,
-					Content:   message.Content,
-				}},
+				Role:    "user",
+				Content: []anthropicContentBlock{toolResult},
 			})
 		case RoleSystem:
 			if strings.TrimSpace(message.Content) != "" {

@@ -131,6 +131,77 @@ func TestAnthropicMessagesModelSendsMessagesRequest(t *testing.T) {
 	}
 }
 
+func TestAnthropicMessagesModelMergesConsecutiveToolResults(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload anthropicMessagesRequestForTest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if len(payload.Messages) != 3 {
+			t.Fatalf("messages = %#v, want user, assistant tool_use, merged user tool_results", payload.Messages)
+		}
+		if payload.Messages[2].Role != "user" {
+			t.Fatalf("tool result message role = %q, want user", payload.Messages[2].Role)
+		}
+		toolResultBlocks, ok := payload.Messages[2].Content.([]anthropicContentBlockForTest)
+		if !ok {
+			t.Fatalf("tool result content = %#v, want block array", payload.Messages[2].Content)
+		}
+		if len(toolResultBlocks) != 3 {
+			t.Fatalf("tool result blocks = %#v, want three merged tool_result blocks", toolResultBlocks)
+		}
+		for i, want := range []struct {
+			id      string
+			content string
+		}{
+			{id: "toolu-a", content: "A result"},
+			{id: "toolu-b", content: "B result"},
+			{id: "toolu-c", content: "C result"},
+		} {
+			if toolResultBlocks[i].Type != "tool_result" || toolResultBlocks[i].ToolUseID != want.id || toolResultBlocks[i].Content != want.content {
+				t.Fatalf("tool result block %d = %#v, want %s/%q", i, toolResultBlocks[i], want.id, want.content)
+			}
+		}
+
+		_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"Done"}]}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL:    server.URL,
+		Model:      "claude-test-model",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := model.Generate(ctx, ModelRequest{
+		Messages: []Message{
+			{Role: RoleUser, Content: "Run tools"},
+			{
+				Role:    RoleAssistant,
+				Content: "Calling tools",
+				ToolCalls: []ToolCall{
+					{ID: "toolu-a", Name: "tool_a", Arguments: map[string]any{}},
+					{ID: "toolu-b", Name: "tool_b", Arguments: map[string]any{}},
+					{ID: "toolu-c", Name: "tool_c", Arguments: map[string]any{}},
+				},
+			},
+			{Role: RoleTool, Name: "tool_a", ToolCallID: "toolu-a", Content: "A result"},
+			{Role: RoleTool, Name: "tool_b", ToolCallID: "toolu-b", Content: "B result"},
+			{Role: RoleTool, Name: "tool_c", ToolCallID: "toolu-c", Content: "C result"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Message.Content != "Done" {
+		t.Fatalf("response content = %q, want Done", response.Message.Content)
+	}
+}
+
 func TestAnthropicMessagesModelSendsThinkingConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload anthropicMessagesRequestForTest
