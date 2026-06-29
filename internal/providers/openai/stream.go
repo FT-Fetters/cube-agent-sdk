@@ -57,7 +57,12 @@ func (m *OpenAICompatibleModel) Stream(ctx context.Context, request ModelRequest
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		defer httpResponse.Body.Close()
 		diagnostics := providerdiagnostics.FromResponse(providerOpenAICompatible, m.endpoint, httpResponse)
-		return nil, core.NewProviderError(fmt.Sprintf("openai-compatible chat completions stream returned status %d", httpResponse.StatusCode), diagnostics, nil)
+		message := fmt.Sprintf("openai-compatible chat completions stream returned status %d", httpResponse.StatusCode)
+		sensitiveValues := providerdiagnostics.SensitiveValuesFromModelRequest(request, m.apiKey, m.endpoint)
+		if summary := providerdiagnostics.ErrorSummaryFromResponse(httpResponse, sensitiveValues...); summary != "" {
+			message += ": " + summary
+		}
+		return nil, core.NewProviderError(message, diagnostics, nil)
 	}
 
 	events := make(chan core.StreamEvent)
@@ -108,7 +113,12 @@ func (m *OpenAIResponsesModel) Stream(ctx context.Context, request ModelRequest)
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		defer httpResponse.Body.Close()
 		diagnostics := providerdiagnostics.FromResponse(providerOpenAIResponses, m.endpoint, httpResponse)
-		return nil, core.NewProviderError(fmt.Sprintf("openai responses stream returned status %d", httpResponse.StatusCode), diagnostics, nil)
+		message := fmt.Sprintf("openai responses stream returned status %d", httpResponse.StatusCode)
+		sensitiveValues := providerdiagnostics.SensitiveValuesFromModelRequest(request, m.apiKey, m.endpoint)
+		if summary := providerdiagnostics.ErrorSummaryFromResponse(httpResponse, sensitiveValues...); summary != "" {
+			message += ": " + summary
+		}
+		return nil, core.NewProviderError(message, diagnostics, nil)
 	}
 
 	events := make(chan core.StreamEvent)

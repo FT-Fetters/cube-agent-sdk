@@ -379,6 +379,45 @@ func TestOpenAICompatibleModelStreamEmitsDecodeErrorWithDiagnostics(t *testing.T
 	}, ModelErrorSubcategoryDecodeError)
 }
 
+func TestOpenAICompatibleModelStreamReturnsSafeProviderErrorMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"Invalid streaming request using test-key at https://user:pass@example.test/v1?api_key=query-secret#frag","type":"invalid_request_error","code":"invalid_stream","param":"stream"}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAICompatibleModel(OpenAICompatibleConfig{
+		BaseURL: server.URL + "?api_key=query-secret",
+		APIKey:  "test-key",
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := model.Stream(context.Background(), ModelRequest{})
+	if events != nil || err == nil {
+		t.Fatalf("Stream = %#v/%v, want nil non-2xx error", events, err)
+	}
+	got := err.Error()
+	for _, want := range []string{
+		"Invalid streaming request",
+		"type=invalid_request_error",
+		"code=invalid_stream",
+		"param=stream",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error = %q, want %q", got, want)
+		}
+	}
+	for _, unsafe := range []string{"test-key", "query-secret", "user:pass", "api_key=", "#frag"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("error = %q leaked %q", got, unsafe)
+		}
+	}
+}
+
 func TestOpenAICompatibleModelRejectsEmptyOrInvalidToolCallArguments(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -453,6 +492,45 @@ func TestOpenAICompatibleModelReturnsNon2xxError(t *testing.T) {
 	got, ok := ProviderDiagnosticsFromError(err)
 	if !ok || got != want {
 		t.Fatalf("provider diagnostics = %#v/%t, want %#v/true", got, ok, want)
+	}
+}
+
+func TestOpenAICompatibleModelReturnsSafeProviderErrorMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"Invalid schema for tool lookup using test-key at https://user:pass@example.test/v1?api_key=query-secret#frag","type":"invalid_request_error","code":"invalid_schema","param":"tools[0].function.parameters"}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAICompatibleModel(OpenAICompatibleConfig{
+		BaseURL: server.URL + "?api_key=query-secret",
+		APIKey:  "test-key",
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = model.Generate(context.Background(), ModelRequest{})
+	if err == nil {
+		t.Fatal("Generate returned nil error, want non-2xx error")
+	}
+	got := err.Error()
+	for _, want := range []string{
+		"Invalid schema for tool lookup",
+		"type=invalid_request_error",
+		"code=invalid_schema",
+		"param=tools[0].function.parameters",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error = %q, want %q", got, want)
+		}
+	}
+	for _, unsafe := range []string{"test-key", "query-secret", "user:pass", "api_key=", "#frag"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("error = %q leaked %q", got, unsafe)
+		}
 	}
 }
 

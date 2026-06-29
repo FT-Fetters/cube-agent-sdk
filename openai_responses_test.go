@@ -519,6 +519,45 @@ func TestOpenAIResponsesModelReturnsNon2xxError(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesModelReturnsSafeProviderErrorMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"Invalid response input using test-key at https://user:pass@example.test/v1?api_key=query-secret#frag","type":"invalid_request_error","code":"invalid_request","param":"input[0].content"}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewOpenAIResponsesModel(OpenAIResponsesConfig{
+		BaseURL: server.URL + "?api_key=query-secret",
+		APIKey:  "test-key",
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = model.Generate(context.Background(), ModelRequest{})
+	if err == nil {
+		t.Fatal("Generate returned nil error, want non-2xx error")
+	}
+	got := err.Error()
+	for _, want := range []string{
+		"Invalid response input",
+		"type=invalid_request_error",
+		"code=invalid_request",
+		"param=input[0].content",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error = %q, want %q", got, want)
+		}
+	}
+	for _, unsafe := range []string{"test-key", "query-secret", "user:pass", "api_key=", "#frag"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("error = %q leaked %q", got, unsafe)
+		}
+	}
+}
+
 func TestNewOpenAIResponsesModelValidatesRequiredConfig(t *testing.T) {
 	tests := []struct {
 		name   string

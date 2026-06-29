@@ -667,6 +667,45 @@ func TestAnthropicMessagesModelReturnsNon2xxErrorWithoutLeakingKey(t *testing.T)
 	}
 }
 
+func TestAnthropicMessagesModelReturnsSafeProviderErrorMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"type":"error","error":{"type":"invalid_request_error","message":"Invalid tool schema using test-key at https://user:pass@example.test/v1?api_key=query-secret#frag","code":"invalid_schema","param":"tools.0.input_schema"}}`)
+	}))
+	defer server.Close()
+
+	model, err := NewAnthropicMessagesModel(AnthropicMessagesConfig{
+		BaseURL: server.URL + "?api_key=query-secret",
+		APIKey:  "test-key",
+		Model:   "claude-test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = model.Generate(context.Background(), ModelRequest{})
+	if err == nil {
+		t.Fatal("Generate returned nil error, want non-2xx error")
+	}
+	got := err.Error()
+	for _, want := range []string{
+		"Invalid tool schema",
+		"type=invalid_request_error",
+		"code=invalid_schema",
+		"param=tools.0.input_schema",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error = %q, want %q", got, want)
+		}
+	}
+	for _, unsafe := range []string{"test-key", "query-secret", "user:pass", "api_key=", "#frag"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("error = %q leaked %q", got, unsafe)
+		}
+	}
+}
+
 func TestNewAnthropicMessagesModelValidatesRequiredConfig(t *testing.T) {
 	tests := []struct {
 		name   string

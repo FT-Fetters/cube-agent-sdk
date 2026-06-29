@@ -140,7 +140,12 @@ func (m *AnthropicMessagesModel) Generate(ctx context.Context, request ModelRequ
 
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		diagnostics := providerdiagnostics.FromResponse(providerAnthropicMessages, m.endpoint, httpResponse)
-		return ModelResponse{}, core.NewProviderError(fmt.Sprintf("anthropic messages returned status %d", httpResponse.StatusCode), diagnostics, nil)
+		message := fmt.Sprintf("anthropic messages returned status %d", httpResponse.StatusCode)
+		sensitiveValues := providerdiagnostics.SensitiveValuesFromModelRequest(request, m.apiKey, m.endpoint)
+		if summary := providerdiagnostics.ErrorSummaryFromResponse(httpResponse, sensitiveValues...); summary != "" {
+			message += ": " + summary
+		}
+		return ModelResponse{}, core.NewProviderError(message, diagnostics, nil)
 	}
 
 	var decoded anthropicMessagesResponse

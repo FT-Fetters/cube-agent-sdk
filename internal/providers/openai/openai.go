@@ -110,7 +110,12 @@ func (m *OpenAICompatibleModel) Generate(ctx context.Context, request ModelReque
 
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		diagnostics := providerdiagnostics.FromResponse(providerOpenAICompatible, m.endpoint, httpResponse)
-		return ModelResponse{}, core.NewProviderError(fmt.Sprintf("openai-compatible chat completions returned status %d", httpResponse.StatusCode), diagnostics, nil)
+		message := fmt.Sprintf("openai-compatible chat completions returned status %d", httpResponse.StatusCode)
+		sensitiveValues := providerdiagnostics.SensitiveValuesFromModelRequest(request, m.apiKey, m.endpoint)
+		if summary := providerdiagnostics.ErrorSummaryFromResponse(httpResponse, sensitiveValues...); summary != "" {
+			message += ": " + summary
+		}
+		return ModelResponse{}, core.NewProviderError(message, diagnostics, nil)
 	}
 
 	var decoded openAIChatCompletionResponse

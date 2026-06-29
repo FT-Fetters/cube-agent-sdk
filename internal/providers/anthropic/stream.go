@@ -58,7 +58,12 @@ func (m *AnthropicMessagesModel) Stream(ctx context.Context, request ModelReques
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		defer httpResponse.Body.Close()
 		diagnostics := providerdiagnostics.FromResponse(providerAnthropicMessages, m.endpoint, httpResponse)
-		return nil, core.NewProviderError(fmt.Sprintf("anthropic messages stream returned status %d", httpResponse.StatusCode), diagnostics, nil)
+		message := fmt.Sprintf("anthropic messages stream returned status %d", httpResponse.StatusCode)
+		sensitiveValues := providerdiagnostics.SensitiveValuesFromModelRequest(request, m.apiKey, m.endpoint)
+		if summary := providerdiagnostics.ErrorSummaryFromResponse(httpResponse, sensitiveValues...); summary != "" {
+			message += ": " + summary
+		}
+		return nil, core.NewProviderError(message, diagnostics, nil)
 	}
 
 	events := make(chan core.StreamEvent)

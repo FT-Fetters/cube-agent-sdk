@@ -104,6 +104,125 @@ func TestBuiltInProviderNon2xxErrorsCarrySafeDiagnostics(t *testing.T) {
 	}
 }
 
+func TestBuiltInProviderStructuredErrorsRedactRequestContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		newModel func(string, string, *http.Client) (Model, error)
+	}{
+		{
+			name: "openai-compatible",
+			newModel: func(baseURL string, apiKey string, client *http.Client) (Model, error) {
+				return NewOpenAICompatibleModel(OpenAICompatibleConfig{
+					BaseURL:    baseURL,
+					APIKey:     apiKey,
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name: "openai-responses",
+			newModel: func(baseURL string, apiKey string, client *http.Client) (Model, error) {
+				return NewOpenAIResponsesModel(OpenAIResponsesConfig{
+					BaseURL:    baseURL,
+					APIKey:     apiKey,
+					Model:      "test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+		{
+			name: "anthropic-messages",
+			newModel: func(baseURL string, apiKey string, client *http.Client) (Model, error) {
+				return NewAnthropicMessagesModel(AnthropicMessagesConfig{
+					BaseURL:    baseURL,
+					APIKey:     apiKey,
+					Model:      "claude-test-model",
+					HTTPClient: client,
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const (
+				systemSecret      = "structured-system-secret"
+				userSecret        = "structured-user-secret"
+				assistantSecret   = "structured-assistant-secret"
+				toolResultSecret  = "structured-tool-result-secret"
+				toolArgumentValue = "structured-tool-argument-secret"
+				numericArgument   = "1234567890"
+				toolSchemaSecret  = "structured-tool-schema-secret"
+				metadataSecret    = "structured-metadata-secret"
+				nestedMetaSecret  = "structured-nested-metadata-secret"
+			)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"error":{"message":"invalid request echoes structured-system-secret structured-user-secret structured-assistant-secret structured-tool-result-secret structured-tool-argument-secret 1234567890 structured-tool-schema-secret structured-metadata-secret structured-nested-metadata-secret","type":"invalid_request_error","code":"bad_request","param":"messages[0].content"}}`)
+			}))
+			defer server.Close()
+
+			model, err := tt.newModel(server.URL, "test-key", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = model.Generate(context.Background(), ModelRequest{
+				SystemPrompt: systemSecret,
+				Messages: []Message{
+					{Role: RoleUser, Content: userSecret},
+					{
+						Role:    RoleAssistant,
+						Content: assistantSecret,
+						ToolCalls: []ToolCall{{
+							ID:        "call-structured",
+							Name:      "lookup",
+							Arguments: map[string]any{"query": toolArgumentValue, "account_id": 1234567890},
+						}},
+						Metadata: map[string]any{
+							"raw": metadataSecret,
+							"items": []map[string]any{{
+								"content": nestedMetaSecret,
+							}},
+						},
+					},
+					{Role: RoleTool, Content: toolResultSecret, Name: "lookup", ToolCallID: "call-structured"},
+				},
+				Tools: []ToolDescriptor{{
+					Name:        "lookup",
+					Description: "Lookup data",
+					Parameters: &ToolParametersSchema{
+						Type: SchemaTypeObject,
+						Properties: map[string]ToolParametersSchema{
+							"query": {Type: SchemaTypeString, Description: toolSchemaSecret},
+						},
+					},
+				}},
+			})
+			if err == nil {
+				t.Fatal("Generate returned nil error, want provider error")
+			}
+			got := err.Error()
+			if !strings.Contains(got, "invalid request echoes") || !strings.Contains(got, "type=invalid_request_error") {
+				t.Fatalf("error = %q, want sanitized provider summary", got)
+			}
+			assertProviderErrorStringIsSafe(t, err,
+				systemSecret,
+				userSecret,
+				assistantSecret,
+				toolResultSecret,
+				toolArgumentValue,
+				numericArgument,
+				toolSchemaSecret,
+				metadataSecret,
+				nestedMetaSecret,
+			)
+		})
+	}
+}
+
 func TestBuiltInProviderStreamNon2xxErrorsCarrySafeDiagnostics(t *testing.T) {
 	tests := []struct {
 		name            string

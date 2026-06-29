@@ -103,7 +103,12 @@ func (m *OpenAIResponsesModel) Generate(ctx context.Context, request ModelReques
 
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
 		diagnostics := providerdiagnostics.FromResponse(providerOpenAIResponses, m.endpoint, httpResponse)
-		return ModelResponse{}, core.NewProviderError(fmt.Sprintf("openai responses returned status %d", httpResponse.StatusCode), diagnostics, nil)
+		message := fmt.Sprintf("openai responses returned status %d", httpResponse.StatusCode)
+		sensitiveValues := providerdiagnostics.SensitiveValuesFromModelRequest(request, m.apiKey, m.endpoint)
+		if summary := providerdiagnostics.ErrorSummaryFromResponse(httpResponse, sensitiveValues...); summary != "" {
+			message += ": " + summary
+		}
+		return ModelResponse{}, core.NewProviderError(message, diagnostics, nil)
 	}
 
 	var decoded openAIResponsesResponse
